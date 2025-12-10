@@ -1,21 +1,23 @@
 {
-  "name": "server",
+  "name": "knitworks-hcm-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend API for KnitWorks HCM",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "db:push": "npx prisma db push",
+    "db:studio": "npx prisma studio",
+    "postinstall": "npx prisma generate"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "^7.1.0",
+    "@prisma/client": "^5.0.0",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "pg": "^8.16.3",
-    "prisma": "^7.1.0"
+    "dotenv": "^16.0.0",
+    "express": "^4.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0",
+    "prisma": "^5.0.0"
   }
 }
