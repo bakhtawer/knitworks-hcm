@@ -8,9 +8,9 @@ import {
   LoanRequest, Visitor, User, ProfileChangeRequest
 } from './types';
 import { 
-  POSITIONS, INITIAL_EMPLOYEES, INITIAL_LEAVES, INITIAL_LOANS, 
-  generateMockAttendance, MOCK_USERS, INITIAL_VISITORS 
+  POSITIONS, INITIAL_LOANS, INITIAL_VISITORS, MOCK_USERS 
 } from './constants';
+import { api } from './utils/api';
 
 // Context
 import { UserContext } from './context/UserContext';
@@ -37,47 +37,83 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Data State - In a real app, these would be fetched via API calls
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
-  const [positions, setPositions] = useState<Position[]>(POSITIONS);
+  // Data State - Initialize empty, fetch from DB
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]); // Fallback to POSITIONS if API fails
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [loans, setLoans] = useState<LoanRequest[]>(INITIAL_LOANS);
-  const [leaves, setLeaves] = useState<LeaveRequest[]>(INITIAL_LEAVES);
-  const [visitors, setVisitors] = useState<Visitor[]>(INITIAL_VISITORS);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
+  const [loans, setLoans] = useState<LoanRequest[]>(INITIAL_LOANS); // Add API later
+  const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
+  const [visitors, setVisitors] = useState<Visitor[]>(INITIAL_VISITORS); // Add API later
+  const [users, setUsers] = useState<User[]>(MOCK_USERS); // Start with Mock, replace with API
   const [profileRequests, setProfileRequests] = useState<ProfileChangeRequest[]>([]);
 
+  // Fetch Data on Login
   useEffect(() => {
-     setAttendance(generateMockAttendance(employees));
-  }, [employees]);
+      if (user) {
+          const fetchData = async () => {
+              try {
+                  const [empData, posData, attData, userData, leaveData] = await Promise.all([
+                      api.get('/employees').catch(() => []),
+                      api.get('/positions').catch(() => POSITIONS),
+                      api.get('/attendance').catch(() => []),
+                      api.get('/users').catch(() => MOCK_USERS),
+                      api.get('/leaves').catch(() => []),
+                  ]);
 
-  const handleAttendanceMark = (empId: string, type: 'IN' | 'OUT') => {
-      // Real implementation of state update
-      const todayStr = new Date().toISOString().split('T')[0];
+                  setEmployees(empData);
+                  setPositions(posData.length ? posData : POSITIONS);
+                  setAttendance(attData);
+                  // Only override users if we actually got some from DB
+                  if (userData.length > 0) setUsers(userData);
+                  setLeaves(leaveData);
+
+              } catch (error) {
+                  console.error("Error fetching initial data", error);
+                  // Fallback for demo if backend is down
+                  setPositions(POSITIONS);
+              }
+          };
+          fetchData();
+      }
+  }, [user]);
+
+  const handleAttendanceMark = async (empId: string, type: 'IN' | 'OUT') => {
       const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
       
-      const existingRecordIndex = attendance.findIndex(r => r.employeeId === empId && r.date === todayStr);
-      
-      if (existingRecordIndex >= 0) {
-          // Update existing
-          const updated = [...attendance];
-          if (type === 'IN') updated[existingRecordIndex].checkIn = timeNow;
-          else updated[existingRecordIndex].checkOut = timeNow;
-          setAttendance(updated);
+      // Optimistic UI Update
+      const todayStr = new Date().toISOString().split('T')[0];
+      let updatedAttendance = [...attendance];
+      const existingIndex = updatedAttendance.findIndex(r => r.employeeId === empId && r.date === todayStr);
+
+      if (existingIndex >= 0) {
+          updatedAttendance[existingIndex] = { 
+              ...updatedAttendance[existingIndex], 
+              checkIn: type === 'IN' ? timeNow : updatedAttendance[existingIndex].checkIn,
+              checkOut: type === 'OUT' ? timeNow : updatedAttendance[existingIndex].checkOut
+          };
       } else {
-          // Create new (assuming IN)
-          const newRecord: AttendanceRecord = {
-              id: `att_${Date.now()}`,
+          updatedAttendance.push({
+              id: `temp_${Date.now()}`,
               employeeId: empId,
               date: todayStr,
-              status: 'Present', // Default to present, later logic determines Late
+              status: 'Present',
               checkIn: timeNow,
-              checkOut: undefined,
               hoursWorked: 0,
               overtimeHours: 0,
               isShortLeave: false
-          };
-          setAttendance([...attendance, newRecord]);
+          });
+      }
+      setAttendance(updatedAttendance);
+
+      // API Call
+      try {
+          await api.post('/attendance', { employeeId: empId, type, time: timeNow });
+          // Optionally re-fetch to sync IDs
+          const freshData = await api.get('/attendance');
+          setAttendance(freshData);
+      } catch (e) {
+          console.error("Failed to mark attendance", e);
+          alert("Failed to save attendance to server");
       }
   };
 
