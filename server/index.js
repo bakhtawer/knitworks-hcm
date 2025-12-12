@@ -8,11 +8,18 @@ const prisma = new PrismaClient();
 const app = express();
 
 // --- 1. CORS CONFIGURATION ---
-// Simplified for easier deployment debugging
+// Updated to robustly handle Cross-Origin requests in production (Render)
 app.use(cors({
-  origin: '*', // Temporarily allow all origins to ensure Vercel can connect without issues
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    // Allow any origin by reflecting it back. 
+    // This solves issues with 'wildcard *' when credentials are true.
+    return callback(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
