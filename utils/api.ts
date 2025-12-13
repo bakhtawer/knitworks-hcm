@@ -2,20 +2,39 @@
 export const API_BASE_URL = 'http://localhost:3001/api';
 
 // =========================================================================================
-// 🌍 API CONNECTION CONFIGURATION
+//  API CONNECTION CONFIGURATION
 // =========================================================================================
 // 1. Copy your Backend Web Service URL from your Render Dashboard.
-// 2. Paste it into the 'RENDER_URL' variable below (keep the /api at the end).
-// 3. Set 'USE_RENDER_BACKEND' to true.
+// 2. Paste it into the 'RENDER_URL' variable below.
+//    Example: 'https://knitworks-hcm.onrender.com' 
+//    (It works with or without the /api suffix, we handle it automatically)
 // =========================================================================================
 
-const USE_RENDER_BACKEND = true; // Set to true to use your Render URL
-
+//  PASTE YOUR RENDER URL HERE 
 const RENDER_URL = 'https://knitworks-hcm.onrender.com/api'; 
 const LOCAL_URL = 'http://localhost:3001/api';
 
-// Export the selected URL
-const BASE_URL = USE_RENDER_BACKEND ? RENDER_URL : LOCAL_URL;
+const getBaseUrl = () => {
+    // 1. Check if user has configured the Render URL
+    const isRenderConfigured = !RENDER_URL.includes('REPLACE_THIS');
+
+    // 2. If configured, ALWAYS use Render URL (even on localhost)
+    if (isRenderConfigured) {
+        // Remove trailing slash if present to avoid double slashes
+        const cleanUrl = RENDER_URL.endsWith('/') ? RENDER_URL.slice(0, -1) : RENDER_URL;
+        
+        // Ensure it ends with /api
+        return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+    }
+
+    // 3. Fallback to Localhost
+    return LOCAL_URL;
+};
+
+const BASE_URL = getBaseUrl();
+
+// Debug Log
+console.log(`🔌 API Configured. Base URL: ${BASE_URL}`);
 
 export const api = {
     get: async (endpoint: string) => {
