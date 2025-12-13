@@ -2,27 +2,30 @@
 export const API_BASE_URL = 'http://localhost:3001/api';
 
 // =========================================================================================
-//  API CONNECTION CONFIGURATION
+// 🌍 API CONNECTION CONFIGURATION
 // =========================================================================================
-// 1. Copy your Backend Web Service URL from your Render Dashboard.
-// 2. Paste it into the 'RENDER_URL' variable below.
-//    Example: 'https://knitworks-hcm.onrender.com' 
-//    (It works with or without the /api suffix, we handle it automatically)
+// Priority 1: Environment Variable (Vercel / Render Setting)
+// Priority 2: Hardcoded Render URL (Fallback)
+// Priority 3: Localhost (Development)
 // =========================================================================================
 
-//  PASTE YOUR RENDER URL HERE 
-const RENDER_URL = 'https://knitworks-hcm.onrender.com/api'; 
+// 👇 OPTIONAL: If not using Env Vars, paste your Render URL here 👇
+const HARDCODED_RENDER_URL = 'https://REPLACE_THIS_WITH_YOUR_RENDER_URL.onrender.com/api'; 
 const LOCAL_URL = 'http://localhost:3001/api';
 
 const getBaseUrl = () => {
-    // 1. Check if user has configured the Render URL
-    const isRenderConfigured = !RENDER_URL.includes('REPLACE_THIS');
+    // 1. Try Environment Variables (Vite or CRA)
+    // @ts-ignore
+    if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
+    // @ts-ignore
+    if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
 
-    // 2. If configured, ALWAYS use Render URL (even on localhost)
+    // 2. Check if user has hardcoded the Render URL in this file
+    const isRenderConfigured = !HARDCODED_RENDER_URL.includes('REPLACE_THIS');
+
     if (isRenderConfigured) {
         // Remove trailing slash if present to avoid double slashes
-        const cleanUrl = RENDER_URL.endsWith('/') ? RENDER_URL.slice(0, -1) : RENDER_URL;
-        
+        const cleanUrl = HARDCODED_RENDER_URL.endsWith('/') ? HARDCODED_RENDER_URL.slice(0, -1) : HARDCODED_RENDER_URL;
         // Ensure it ends with /api
         return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
     }
@@ -33,8 +36,8 @@ const getBaseUrl = () => {
 
 const BASE_URL = getBaseUrl();
 
-// Debug Log
-console.log(`🔌 API Configured. Base URL: ${BASE_URL}`);
+// Debug Log (Visible in Browser Console)
+console.log(`🔌 API Configured. Connected to: ${BASE_URL}`);
 
 export const api = {
     get: async (endpoint: string) => {

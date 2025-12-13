@@ -18,11 +18,11 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.HR_ADMIN, UserRole.HOD, UserRole.DIRECTOR, UserRole.LINE_MANAGER, UserRole.AUDITOR] },
     { id: 'employee_portal', label: 'My Dashboard (ESS)', icon: UserCheck, roles: [UserRole.MANAGEMENT_STAFF, UserRole.LINE_MANAGER, UserRole.HOD, UserRole.HR_ADMIN, UserRole.AUDITOR] },
-    { id: 'attendance_kiosk', label: 'Face Recognition', icon: ScanFace, roles: [UserRole.HR_ADMIN, UserRole.LINE_MANAGER] },
+    { id: 'attendance_kiosk', label: 'Face Recognition', icon: ScanFace, roles: [UserRole.HR_ADMIN, UserRole.LINE_MANAGER], isNew: true },
     { id: 'employees', label: 'Employees & Documents', icon: Users, roles: [UserRole.HR_ADMIN, UserRole.HOD] },
     { id: 'attendance', label: 'Attendance Reports', icon: CalendarDays, roles: [UserRole.HR_ADMIN, UserRole.LINE_MANAGER, UserRole.HOD] },
     { id: 'leaves', label: 'Leave Applications', icon: FileText, roles: [UserRole.HR_ADMIN, UserRole.HOD, UserRole.LINE_MANAGER] },
-    { id: 'payroll', label: 'Payroll & Salary', icon: DollarSign, roles: [UserRole.HR_ADMIN, UserRole.AUDITOR, UserRole.DIRECTOR, UserRole.HOD] },
+    { id: 'payroll', label: 'Payroll & Salary', icon: DollarSign, roles: [UserRole.HR_ADMIN, UserRole.AUDITOR, UserRole.DIRECTOR, UserRole.HOD], isNew: true },
     { id: 'users', label: 'User Management', icon: Lock, roles: [UserRole.HR_ADMIN] },
     { id: 'positions', label: 'Positions & Salary', icon: Briefcase, roles: [UserRole.HR_ADMIN] },
     { id: 'letters', label: 'Letter Generator', icon: FileSignature, roles: [UserRole.HR_ADMIN] },
@@ -42,7 +42,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: {
              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-md flex items-center justify-center font-bold text-lg">K</div>
              <span className="text-xl font-bold tracking-tight">KnitWorks</span>
            </div>
-           <p className="text-[10px] text-slate-400 uppercase tracking-widest pl-10">HCM Suite 3.0</p>
+           <p className="text-[10px] text-slate-400 uppercase tracking-widest pl-10">HCM v2.0</p>
         </div>
         
         <div className="p-4 bg-slate-800/50 mx-4 mt-4 rounded-lg flex items-center gap-3">
@@ -62,14 +62,17 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: {
             <button
               key={item.id}
               onClick={() => { setActiveTab(item.id); setIsOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all ${
                 activeTab === item.id 
                   ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg' 
                   : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <item.icon size={18} />
-              <span className="font-medium text-sm">{item.label}</span>
+              <div className="flex items-center gap-3">
+                <item.icon size={18} />
+                <span className="font-medium text-sm">{item.label}</span>
+              </div>
+              {item.isNew && <span className="text-[10px] bg-emerald-500 text-white px-1.5 py-0.5 rounded font-bold">NEW</span>}
             </button>
           ))}
           <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-red-900/20 hover:text-red-400 mt-8">
@@ -77,6 +80,10 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: {
               <span className="font-medium text-sm">Logout</span>
           </button>
         </nav>
+        
+        <div className="absolute bottom-4 left-0 right-0 text-center text-[10px] text-slate-600">
+            Build: v2.0.1 (Stable)
+        </div>
       </div>
     </>
   );
