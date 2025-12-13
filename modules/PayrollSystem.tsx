@@ -1,289 +1,296 @@
 
-import React, { useState } from 'react';
-import { UserCog, Send, Banknote } from 'lucide-react';
-import { Employee, LeaveRequest, ProfileChangeRequest, LoanRequest } from '../types';
+import React, { useState, useMemo } from 'react';
+import { CheckCircle, FileSignature, FileDown, Ban, Check, Scale, Clock, Calculator, AlertTriangle, Info } from 'lucide-react';
+import { Employee, Position, UserRole, LoanRequest } from '../types';
 import { UserContext } from '../context/UserContext';
-import { sendEmailNotification } from '../utils/helpers';
+import { downloadCSV } from '../utils/helpers';
 import { api } from '../utils/api';
 
-export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileRequests, setProfileRequests, loans, setLoans }: any) => {
+export const PayrollSystem = ({ employees, positions, attendance, loans, setLoans }: any) => {
     const { user } = React.useContext(UserContext);
-    const myEmp = employees.find((e: Employee) => e.id === user?.employeeId);
-    
-    const [activeTab, setActiveTab] = useState<'overview' | 'apply' | 'loans' | 'profile'>('overview');
-    const [leaveForm, setLeaveForm] = useState({ type: 'Casual', startDate: '', endDate: '', reason: '' });
-    const [loanForm, setLoanForm] = useState({ amount: 0, reason: '', monthlyDeduction: 0 });
-    const [profileReq, setProfileReq] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [month, setMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [approvedBy, setApprovedBy] = useState<string | null>(null);
+    const [activeSection, setActiveSection] = useState<'payroll' | 'loans' | 'policies'>('payroll');
 
-    if (!myEmp) return <div className="p-8 text-center text-slate-400">Employee record not found for this user.</div>;
+    // Calculation Logic
+    const payrollData = useMemo(() => {
+        // Mocking attendance stats aggregation for the selected month
+        return employees.map((emp: Employee) => {
+            const pos = positions.find((p: Position) => p.id === emp.positionId);
+            if (!pos) return null;
 
-    const handleApplyLeave = async () => {
-        setIsSubmitting(true);
-        try {
-            const payload = {
-                employeeId: myEmp.id,
-                startDate: leaveForm.startDate,
-                endDate: leaveForm.endDate || leaveForm.startDate,
-                reason: leaveForm.reason,
-                status: 'Pending',
-                type: leaveForm.type as any,
-                isPaid: true
-            };
-            const savedLeave = await api.post('/leaves', payload);
-            setLeaves([...leaves, savedLeave]);
+            // Base Calcs
+            const base = pos.baseSalary;
+            const customAllowances = pos.customAllowances?.reduce((sum, a) => sum + a.amount, 0) || 0;
+            const gross = base + emp.medicalAllowance + emp.mobileAllowance + emp.foodAllowance + customAllowances;
+            const tax = (gross * pos.taxPercentage) / 100;
             
-            // Notify
-            sendEmailNotification(
-                "hr@knitworks.com", 
-                `New Leave Request: ${myEmp.firstName} ${myEmp.lastName}`, 
-                `Type: ${savedLeave.type}\nReason: ${savedLeave.reason}\nDates: ${savedLeave.startDate} - ${savedLeave.endDate}`
-            );
+            // Deduct Loans if Approved
+            const empLoans = loans?.filter((l:LoanRequest) => l.employeeId === emp.id && l.status === 'Approved' && l.remainingBalance > 0) || [];
+            const loanDeduction = empLoans.reduce((acc: number, l: LoanRequest) => acc + Math.min(l.monthlyDeduction, l.remainingBalance), 0);
 
-            setActiveTab('overview');
-            setLeaveForm({ type: 'Casual', startDate: '', endDate: '', reason: '' });
-        } catch (e: any) {
-            alert("Failed to submit leave: " + e.message);
-        } finally {
-            setIsSubmitting(false);
+            const net = gross - tax - loanDeduction;
+
+            return {
+                id: emp.id,
+                name: `${emp.firstName} ${emp.lastName}`,
+                position: pos.title,
+                base,
+                allowances: gross - base, // Total Allowances
+                gross,
+                tax,
+                loanDeduction,
+                net
+            };
+        }).filter(Boolean);
+    }, [employees, positions, month, loans]);
+
+    // Comparison Logic (Simulated Last Month Variance)
+    const varianceData = useMemo(() => {
+        return payrollData.map((row: any) => ({
+            ...row,
+            prevNet: row.net * (0.95 + Math.random() * 0.1) // +/- 5% random variance
+        }));
+    }, [payrollData]);
+
+    const handleApprovePayroll = () => {
+        if (user?.roles.includes(UserRole.DIRECTOR)) {
+            setApprovedBy(user.displayName);
+            alert("Payroll Approved Successfully");
+        } else {
+            alert("Only Directors can approve payroll.");
         }
     };
 
-    const handleApplyLoan = async () => {
-        if (loanForm.amount <= 0 || !loanForm.reason) return;
-        setIsSubmitting(true);
-        try {
-            const payload = {
-                employeeId: myEmp.id,
-                amount: loanForm.amount,
-                reason: loanForm.reason,
-                monthlyDeduction: loanForm.monthlyDeduction,
-                remainingBalance: loanForm.amount,
-                status: 'Pending'
-            };
-            const savedLoan = await api.post('/loans', payload);
-            if (setLoans) setLoans([...loans, savedLoan]);
-            
-            alert("Loan Application Submitted");
-            setLoanForm({ amount: 0, reason: '', monthlyDeduction: 0 });
-            setActiveTab('overview');
-        } catch (e: any) {
-            alert("Failed to submit loan: " + e.message);
-        } finally {
-            setIsSubmitting(false);
-        }
+    const handleRelease = () => {
+        downloadCSV(payrollData, `Payroll_${month}.csv`);
     };
 
-    const handleProfileRequest = async () => {
-        if (!profileReq) return;
-        setIsSubmitting(true);
+    const handleLoanAction = async (id: string, action: 'Approved' | 'Rejected') => {
         try {
-            const payload = {
-                employeeId: myEmp.id,
-                requestDate: new Date().toISOString(),
-                details: profileReq,
-                status: 'Pending'
-            };
-            const savedReq = await api.post('/profile-requests', payload);
-            setProfileRequests([...profileRequests, savedReq]);
-            
-            // Notify
-            sendEmailNotification(
-                "hr@knitworks.com",
-                `Profile Change Request: ${myEmp.firstName} ${myEmp.lastName}`,
-                `Request Details: ${profileReq}`
-            );
-            setProfileReq('');
-            alert("Request Submitted to HR");
+            const updated = await api.put(`/loans/${id}`, { status: action });
+            setLoans((prev: any[]) => prev.map(l => l.id === id ? updated : l));
         } catch (e: any) {
-            alert("Failed to submit request: " + e.message);
-        } finally {
-            setIsSubmitting(false);
+            alert("Failed to update loan: " + e.message);
         }
     };
 
     return (
         <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-slate-800">My Dashboard</h2>
-            
-            <div className="flex gap-4 border-b border-slate-200 overflow-x-auto">
-                <button onClick={() => setActiveTab('overview')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'overview' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Overview & Balances</button>
-                <button onClick={() => setActiveTab('apply')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'apply' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Apply Leave</button>
-                <button onClick={() => setActiveTab('loans')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'loans' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Loans & Finance</button>
-                <button onClick={() => setActiveTab('profile')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'profile' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>My Profile</button>
-            </div>
+             <div className="flex gap-4 border-b">
+                 <button onClick={() => setActiveSection('payroll')} className={`px-4 py-2 font-bold ${activeSection === 'payroll' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500'}`}>Monthly Payroll</button>
+                 <button onClick={() => setActiveSection('loans')} className={`px-4 py-2 font-bold ${activeSection === 'loans' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500'}`}>Loan Management</button>
+                 <button onClick={() => setActiveSection('policies')} className={`px-4 py-2 font-bold ${activeSection === 'policies' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500'}`}>Policies & Formulas</button>
+             </div>
 
-            {activeTab === 'overview' && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                     <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-xl shadow-lg">
-                         <div className="text-sm opacity-80 mb-2">Casual Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.cl || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
-                     </div>
-                     <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-6 rounded-xl shadow-lg">
-                         <div className="text-sm opacity-80 mb-2">Annual Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.al || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
-                     </div>
-                     <div className="bg-gradient-to-br from-pink-500 to-pink-600 text-white p-6 rounded-xl shadow-lg">
-                         <div className="text-sm opacity-80 mb-2">Sick Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.sl || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
-                     </div>
-                     <div className="bg-gradient-to-br from-amber-500 to-amber-600 text-white p-6 rounded-xl shadow-lg">
-                         <div className="text-sm opacity-80 mb-2">Short Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.short_leaves || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
-                     </div>
-
-                     <div className="md:col-span-4 bg-white rounded-xl border border-slate-200 p-6">
-                         <h3 className="font-bold text-lg mb-4">Recent Leave Requests</h3>
-                         <table className="w-full text-sm text-left">
-                             <thead className="bg-slate-50">
-                                 <tr>
-                                     <th className="p-3">Type</th>
-                                     <th className="p-3">Dates</th>
-                                     <th className="p-3">Status</th>
-                                     <th className="p-3">Reason</th>
-                                 </tr>
-                             </thead>
-                             <tbody>
-                                 {leaves.filter((l: LeaveRequest) => l.employeeId === myEmp.id).map((l: LeaveRequest) => (
-                                     <tr key={l.id} className="border-b">
-                                         <td className="p-3">{l.type}</td>
-                                         <td className="p-3">{l.startDate}</td>
-                                         <td className="p-3">
-                                             <span className={`px-2 py-1 rounded text-xs font-bold ${l.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                 {l.status}
-                                             </span>
-                                         </td>
-                                         <td className="p-3 text-slate-500">{l.reason}</td>
-                                     </tr>
-                                 ))}
-                             </tbody>
-                         </table>
-                     </div>
-                </div>
-            )}
-
-            {activeTab === 'apply' && (
-                <div className="bg-white p-8 rounded-xl border border-slate-200 max-w-2xl">
-                    <h3 className="font-bold text-lg mb-6">Submit Leave Application</h3>
-                    <div className="space-y-4">
+             {activeSection === 'payroll' && (
+                 <>
+                    <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">Leave Type</label>
-                            <select className="w-full border p-2 rounded" value={leaveForm.type} onChange={e => setLeaveForm({...leaveForm, type: e.target.value})}>
-                                <option value="Casual">Casual Leave</option>
-                                <option value="Sick">Sick Leave</option>
-                                <option value="Annual">Annual Leave</option>
-                                <option value="ShortLeave">Short Leave</option>
-                            </select>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Payroll Month</label>
+                            <input type="month" className="border p-2 rounded font-bold text-slate-700" value={month} onChange={e => setMonth(e.target.value)} />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Start Date</label>
-                                <input type="date" className="w-full border p-2 rounded" value={leaveForm.startDate} onChange={e => setLeaveForm({...leaveForm, startDate: e.target.value})} />
-                            </div>
-                            {leaveForm.type !== 'ShortLeave' && (
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">End Date</label>
-                                    <input type="date" className="w-full border p-2 rounded" value={leaveForm.endDate} onChange={e => setLeaveForm({...leaveForm, endDate: e.target.value})} />
+                        <div className="flex gap-3">
+                            {approvedBy ? (
+                                <div className="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg flex items-center gap-2 font-bold border border-emerald-200">
+                                    <CheckCircle size={20}/> Approved by {approvedBy}
                                 </div>
+                            ) : (
+                                user?.roles.includes(UserRole.DIRECTOR) && (
+                                    <button onClick={handleApprovePayroll} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-emerald-200 hover:bg-emerald-700">
+                                        <FileSignature size={18}/> Approve Payroll
+                                    </button>
+                                )
                             )}
+                            <button onClick={handleRelease} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-slate-700">
+                                <FileDown size={18}/> Release & Download CSV
+                            </button>
                         </div>
-                        <div>
-                             <label className="block text-sm font-bold text-slate-700 mb-1">Reason</label>
-                             <textarea className="w-full border p-2 rounded h-24" value={leaveForm.reason} onChange={e => setLeaveForm({...leaveForm, reason: e.target.value})} placeholder="Why are you taking this leave?" />
-                        </div>
-                        <button onClick={handleApplyLeave} disabled={isSubmitting} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold w-full hover:bg-blue-700 disabled:opacity-50">
-                            {isSubmitting ? 'Submitting...' : 'Submit Application'}
-                        </button>
                     </div>
-                </div>
-            )}
 
-            {activeTab === 'loans' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-xl border border-slate-200">
-                         <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Banknote size={20}/> Apply for Loan</h3>
-                         <div className="space-y-4">
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount Required</label>
-                                 <input type="number" className="w-full border p-2 rounded" value={loanForm.amount} onChange={e => setLoanForm({...loanForm, amount: parseInt(e.target.value)})} placeholder="e.g. 50000"/>
-                             </div>
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Monthly Deduction</label>
-                                 <input type="number" className="w-full border p-2 rounded" value={loanForm.monthlyDeduction} onChange={e => setLoanForm({...loanForm, monthlyDeduction: parseInt(e.target.value)})} placeholder="e.g. 5000"/>
-                             </div>
-                             <div>
-                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason</label>
-                                 <textarea className="w-full border p-2 rounded" value={loanForm.reason} onChange={e => setLoanForm({...loanForm, reason: e.target.value})} placeholder="e.g. Home Renovation"/>
-                             </div>
-                             <button onClick={handleApplyLoan} disabled={isSubmitting} className="w-full bg-slate-800 text-white py-2 rounded font-bold disabled:opacity-50">
-                                 {isSubmitting ? 'Submitting...' : 'Submit Loan Request'}
-                             </button>
-                         </div>
+                    <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 text-slate-700">
+                                <tr>
+                                    <th className="p-3">Employee</th>
+                                    <th className="p-3">Position</th>
+                                    <th className="p-3 text-right">Basic</th>
+                                    <th className="p-3 text-right">Allowances</th>
+                                    <th className="p-3 text-right">Gross Pay</th>
+                                    <th className="p-3 text-right">Tax</th>
+                                    <th className="p-3 text-right">Loan Ded.</th>
+                                    <th className="p-3 text-right">Net Payable</th>
+                                    <th className="p-3 text-right">Variance</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {varianceData.map((row: any) => {
+                                    const diff = row.net - row.prevNet;
+                                    return (
+                                        <tr key={row.id} className="hover:bg-slate-50">
+                                            <td className="p-3 font-bold">{row.name}</td>
+                                            <td className="p-3 text-xs text-slate-500">{row.position}</td>
+                                            <td className="p-3 text-right font-mono">{row.base.toLocaleString()}</td>
+                                            <td className="p-3 text-right font-mono text-emerald-600">+{row.allowances.toLocaleString()}</td>
+                                            <td className="p-3 text-right font-mono font-bold">{row.gross.toLocaleString()}</td>
+                                            <td className="p-3 text-right font-mono text-red-500">-{row.tax.toLocaleString()}</td>
+                                            <td className="p-3 text-right font-mono text-amber-600">{row.loanDeduction > 0 ? `-${row.loanDeduction.toLocaleString()}` : '-'}</td>
+                                            <td className="p-3 text-right font-mono font-bold text-lg">{row.net.toLocaleString()}</td>
+                                            <td className="p-3 text-right">
+                                                <span className={`text-xs font-bold ${diff > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {diff > 0 ? '+' : ''}{Math.round(diff).toLocaleString()}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
-                    <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-                        <h3 className="font-bold text-lg mb-4">My Loan History</h3>
-                        {(!loans || loans.filter((l:any) => l.employeeId === myEmp.id).length === 0) && (
-                            <p className="text-slate-400 italic">No loan history found.</p>
-                        )}
-                        <div className="space-y-3">
-                            {loans && loans.filter((l:any) => l.employeeId === myEmp.id).map((l: LoanRequest) => (
-                                <div key={l.id} className="bg-white p-3 rounded shadow-sm border">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="font-bold text-slate-700">RS. {l.amount.toLocaleString()}</span>
-                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${l.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{l.status}</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 mb-1">Balance: {l.remainingBalance.toLocaleString()}</p>
-                                    <p className="text-xs text-slate-400">{l.reason}</p>
+                 </>
+             )}
+
+             {activeSection === 'loans' && (
+                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                     <div className="p-4 border-b bg-slate-50 font-bold text-slate-700">Pending Loan Requests</div>
+                     <table className="w-full text-sm text-left">
+                        <thead className="bg-white border-b">
+                            <tr>
+                                <th className="p-3">Employee</th>
+                                <th className="p-3">Amount</th>
+                                <th className="p-3">Monthly Deduction</th>
+                                <th className="p-3">Reason</th>
+                                <th className="p-3">Status</th>
+                                <th className="p-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loans && loans.length > 0 ? loans.map((l:any) => (
+                                <tr key={l.id} className="border-b hover:bg-slate-50">
+                                    <td className="p-3 font-bold">{l.employee?.firstName} {l.employee?.lastName}</td>
+                                    <td className="p-3 font-mono">{l.amount.toLocaleString()}</td>
+                                    <td className="p-3 font-mono">{l.monthlyDeduction.toLocaleString()}</td>
+                                    <td className="p-3 text-slate-500">{l.reason}</td>
+                                    <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${l.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : l.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>{l.status}</span></td>
+                                    <td className="p-3 flex gap-2">
+                                        {l.status === 'Pending' && (
+                                            <>
+                                                <button onClick={() => handleLoanAction(l.id, 'Approved')} className="p-1 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200" title="Approve"><Check size={16}/></button>
+                                                <button onClick={() => handleLoanAction(l.id, 'Rejected')} className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Reject"><Ban size={16}/></button>
+                                            </>
+                                        )}
+                                    </td>
+                                </tr>
+                            )) : (
+                                <tr><td colSpan={6} className="p-8 text-center text-slate-400">No loan requests found.</td></tr>
+                            )}
+                        </tbody>
+                     </table>
+                 </div>
+             )}
+
+             {activeSection === 'policies' && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Basic Formula Card */}
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm md:col-span-2">
+                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <Calculator className="text-blue-600"/> Salary Calculation Formula
+                        </h3>
+                        <div className="bg-slate-50 p-4 rounded-lg font-mono text-sm md:text-base text-slate-700 border border-slate-200 flex flex-wrap gap-2 items-center justify-center">
+                            <span className="bg-white px-2 py-1 rounded border shadow-sm font-bold">Base Salary</span>
+                            <span className="text-slate-400">+</span>
+                            <span className="bg-white px-2 py-1 rounded border shadow-sm font-bold">Allowances</span>
+                            <span className="text-slate-400">+</span>
+                            <span className="bg-white px-2 py-1 rounded border shadow-sm font-bold">Overtime</span>
+                            <span className="text-slate-400">-</span>
+                            <span className="bg-white px-2 py-1 rounded border shadow-sm font-bold text-red-600">Tax</span>
+                            <span className="text-slate-400">-</span>
+                            <span className="bg-white px-2 py-1 rounded border shadow-sm font-bold text-red-600">Loan</span>
+                            <span className="text-slate-400">-</span>
+                            <span className="bg-white px-2 py-1 rounded border shadow-sm font-bold text-red-600">Late Deductions</span>
+                            <span className="text-slate-400">=</span>
+                            <span className="bg-blue-600 text-white px-3 py-1 rounded shadow-md font-bold">Net Salary</span>
+                        </div>
+                    </div>
+
+                    {/* Attendance Policies */}
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <Clock className="text-amber-600"/> Late & Attendance Policies
+                        </h3>
+                        <div className="space-y-4">
+                            <div className="flex items-start gap-3">
+                                <div className="mt-1"><AlertTriangle size={16} className="text-amber-500"/></div>
+                                <div>
+                                    <h4 className="font-bold text-sm">Grace Period</h4>
+                                    <p className="text-xs text-slate-500">Employees have a <span className="font-bold">15-minute grace period</span> after shift start time. Check-ins after this are marked as 'Late'.</p>
                                 </div>
-                            ))}
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="mt-1"><Scale size={16} className="text-red-500"/></div>
+                                <div>
+                                    <h4 className="font-bold text-sm">Late Deduction Rule</h4>
+                                    <p className="text-xs text-slate-500">Every <span className="font-bold text-red-600">3rd Late</span> in a calendar month results in a deduction equivalent to <span className="font-bold">1 Day's Base Salary</span>.</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="mt-1"><Clock size={16} className="text-blue-500"/></div>
+                                <div>
+                                    <h4 className="font-bold text-sm">Half-Day Policy</h4>
+                                    <p className="text-xs text-slate-500">Check-ins occurring <span className="font-bold">more than 2 hours</span> after shift start are automatically marked as 'Half Day' (4 working hours).</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
 
-            {activeTab === 'profile' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-xl border border-slate-200">
-                        <h3 className="font-bold text-lg mb-4">My Information</h3>
-                        <div className="space-y-3 text-sm">
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-slate-500">Full Name</span>
-                                <span className="font-bold">{myEmp.firstName} {myEmp.lastName}</span>
+                    {/* OT & Tax Policies */}
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <Info className="text-purple-600"/> Overtime & Tax Rules
+                        </h3>
+                        <div className="space-y-4">
+                            <div className="bg-slate-50 p-3 rounded-lg border">
+                                <h4 className="font-bold text-sm text-slate-700 mb-2">Overtime (OT) Rates</h4>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="flex justify-between border-b pb-1">
+                                        <span>Labor / Ops</span>
+                                        <span className="font-bold text-emerald-600">1.5x Hourly Rate</span>
+                                    </div>
+                                    <div className="flex justify-between border-b pb-1">
+                                        <span>Management</span>
+                                        <span className="font-bold text-slate-400">No OT</span>
+                                    </div>
+                                    <div className="flex justify-between pt-1">
+                                        <span>Sundays/Public Holidays</span>
+                                        <span className="font-bold text-emerald-600">2.0x Hourly Rate</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-slate-500">CNIC</span>
-                                <span className="font-bold">{myEmp.cnic}</span>
-                            </div>
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-slate-500">Email</span>
-                                <span className="font-bold">{myEmp.email}</span>
-                            </div>
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-slate-500">Phone</span>
-                                <span className="font-bold">{myEmp.emergencyContact || 'Not Added'}</span>
-                            </div>
-                            <div className="flex justify-between border-b pb-2">
-                                <span className="text-slate-500">Address</span>
-                                <span className="font-bold">Not Added</span>
+
+                            <div className="bg-slate-50 p-3 rounded-lg border">
+                                <h4 className="font-bold text-sm text-slate-700 mb-2">Income Tax Slabs (Annual)</h4>
+                                <div className="space-y-1 text-xs">
+                                    <div className="flex justify-between">
+                                        <span>Up to 600,000</span>
+                                        <span className="font-bold">0%</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>600,001 - 1,200,000</span>
+                                        <span className="font-bold">2.5% of excess</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>1,200,001 - 2,400,000</span>
+                                        <span className="font-bold">12.5% of excess</span>
+                                    </div>
+                                    <div className="flex justify-between text-slate-400 italic mt-1">
+                                        *Tax is deducted at source monthly.
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    
-                    <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><UserCog size={20}/> Request Change</h3>
-                        <p className="text-sm text-slate-500 mb-4">Found incorrect information? Submit a request to HR for correction.</p>
-                        <textarea 
-                            className="w-full border p-3 rounded h-32 mb-4 text-sm" 
-                            placeholder="Example: Please update my mobile number to 0300-1234567..."
-                            value={profileReq}
-                            onChange={e => setProfileReq(e.target.value)}
-                        />
-                        <button onClick={handleProfileRequest} disabled={isSubmitting} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 w-full justify-center disabled:opacity-50">
-                            <Send size={16}/> {isSubmitting ? 'Sending...' : 'Send Request to HR'}
-                        </button>
-                    </div>
-                </div>
-            )}
+                 </div>
+             )}
         </div>
-    )
-}
+    );
+};
