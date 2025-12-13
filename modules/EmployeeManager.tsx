@@ -1,17 +1,18 @@
 
 import React, { useState, useRef } from 'react';
 import { 
-  UserPlus, Eye, Edit, Camera, Upload, File, Download, Trash2, X, AlertCircle
+  UserPlus, Eye, Edit, Camera, Upload, File, Download, Trash2, X, AlertCircle, Inbox, Check
 } from 'lucide-react';
-import { Employee, Position, User, UserRole, EmployeeType, ManagementLevel, Division, Department, ShiftType, EmployeeDocument } from '../types';
+import { Employee, Position, User, UserRole, EmployeeType, ManagementLevel, Division, Department, ShiftType, EmployeeDocument, ProfileChangeRequest } from '../types';
 import { sendEmailNotification } from '../utils/helpers';
 import { api } from '../utils/api';
 
-export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }: any) => {
+export const EmployeeManager = ({ employees, setEmployees, setUsers, positions, profileRequests, setProfileRequests }: any) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [viewMode, setViewMode] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'personal'|'job'|'leaves'|'docs'>('personal');
+    const [showRequests, setShowRequests] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     
     const [form, setForm] = useState<Partial<Employee>>({
@@ -47,8 +48,6 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
 
     const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            // In a real app, upload this to server via API
-            // For now, keeping blob URL for preview
             const url = URL.createObjectURL(e.target.files[0]);
             setForm({ ...form, profilePicture: url });
         }
@@ -73,18 +72,14 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
 
         try {
             if (editingId) {
-                // UPDATE Existing
                 const updated = await api.put(`/employees/${editingId}`, form);
                 setEmployees((prev: Employee[]) => prev.map(e => e.id === editingId ? updated : e));
                 alert("Employee Updated Successfully");
             } else {
-                // CREATE New
-                // 1. Create Employee
                 const newEmpData = { 
                     ...form, 
                     isActive: true, 
                     joinDate: form.joinDate || new Date().toISOString().split('T')[0],
-                    // Ensure required number fields are present
                     medicalAllowance: form.medicalAllowance || 0,
                     providentFund: form.providentFund || 0,
                     mobileAllowance: form.mobileAllowance || 0,
@@ -94,7 +89,6 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
                 const savedEmp = await api.post('/employees', newEmpData);
                 setEmployees((prev: Employee[]) => [savedEmp, ...prev]);
 
-                // 2. Create User automatically
                 const pos = positions.find((p: Position) => p.id === form.positionId);
                 let role = UserRole.LINE_MANAGER;
                 if (pos?.type === EmployeeType.MANAGEMENT) {
@@ -115,7 +109,6 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
                 const savedUser = await api.post('/users', newUserPayload);
                 setUsers((prev: User[]) => [...prev, savedUser]);
                 
-                // Email Notification
                 sendEmailNotification(
                     savedUser.email,
                     "Welcome to KnitWorks HCM",
@@ -131,13 +124,72 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
         }
     };
 
+    const handleResolveRequest = async (reqId: string) => {
+        try {
+             const updated = await api.put(`/profile-requests/${reqId}`, { status: 'Resolved' });
+             setProfileRequests((prev: any[]) => prev.map(r => r.id === reqId ? updated : r));
+        } catch (e: any) {
+            alert("Failed to resolve request: " + e.message);
+        }
+    };
+
+    if (showRequests) {
+        return (
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold text-slate-800">Profile Change Requests</h2>
+                    <button onClick={() => setShowRequests(false)} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold">Back to Directory</button>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-50">
+                            <tr>
+                                <th className="p-3">Employee</th>
+                                <th className="p-3">Date</th>
+                                <th className="p-3">Request Details</th>
+                                <th className="p-3">Status</th>
+                                <th className="p-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {profileRequests && profileRequests.length > 0 ? profileRequests.map((r: ProfileChangeRequest) => {
+                                const emp = employees.find((e:Employee) => e.id === r.employeeId);
+                                return (
+                                    <tr key={r.id} className="border-b">
+                                        <td className="p-3 font-bold">{emp ? `${emp.firstName} ${emp.lastName}` : r.employeeId}</td>
+                                        <td className="p-3">{new Date(r.requestDate).toLocaleDateString()}</td>
+                                        <td className="p-3 text-slate-600">{r.details}</td>
+                                        <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${r.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{r.status}</span></td>
+                                        <td className="p-3">
+                                            {r.status === 'Pending' && (
+                                                <button onClick={() => handleResolveRequest(r.id)} className="bg-blue-100 text-blue-700 px-3 py-1 rounded font-bold text-xs flex items-center gap-1 hover:bg-blue-200">
+                                                    <Check size={14}/> Mark Resolved
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                )
+                            }) : <tr><td colSpan={5} className="p-6 text-center text-slate-400">No pending requests.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-slate-800">Employee Directory</h2>
-                <button onClick={handleAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                    <UserPlus size={18}/> Add Employee
-                </button>
+                <div className="flex gap-2">
+                    <button onClick={() => setShowRequests(true)} className="bg-white border text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 relative">
+                        <Inbox size={18}/> Requests
+                        {profileRequests.filter((r:any) => r.status === 'Pending').length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center">{profileRequests.filter((r:any) => r.status === 'Pending').length}</span>}
+                    </button>
+                    <button onClick={handleAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                        <UserPlus size={18}/> Add Employee
+                    </button>
+                </div>
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

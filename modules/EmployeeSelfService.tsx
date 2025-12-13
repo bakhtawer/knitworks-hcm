@@ -1,17 +1,18 @@
 
 import React, { useState } from 'react';
-import { UserCog, Send } from 'lucide-react';
-import { Employee, LeaveRequest, ProfileChangeRequest } from '../types';
+import { UserCog, Send, Banknote } from 'lucide-react';
+import { Employee, LeaveRequest, ProfileChangeRequest, LoanRequest } from '../types';
 import { UserContext } from '../context/UserContext';
 import { sendEmailNotification } from '../utils/helpers';
 import { api } from '../utils/api';
 
-export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileRequests, setProfileRequests }: any) => {
+export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileRequests, setProfileRequests, loans, setLoans }: any) => {
     const { user } = React.useContext(UserContext);
     const myEmp = employees.find((e: Employee) => e.id === user?.employeeId);
     
-    const [activeTab, setActiveTab] = useState<'overview' | 'apply' | 'profile'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'apply' | 'loans' | 'profile'>('overview');
     const [leaveForm, setLeaveForm] = useState({ type: 'Casual', startDate: '', endDate: '', reason: '' });
+    const [loanForm, setLoanForm] = useState({ amount: 0, reason: '', monthlyDeduction: 0 });
     const [profileReq, setProfileReq] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -43,6 +44,31 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
             setLeaveForm({ type: 'Casual', startDate: '', endDate: '', reason: '' });
         } catch (e: any) {
             alert("Failed to submit leave: " + e.message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleApplyLoan = async () => {
+        if (loanForm.amount <= 0 || !loanForm.reason) return;
+        setIsSubmitting(true);
+        try {
+            const payload = {
+                employeeId: myEmp.id,
+                amount: loanForm.amount,
+                reason: loanForm.reason,
+                monthlyDeduction: loanForm.monthlyDeduction,
+                remainingBalance: loanForm.amount,
+                status: 'Pending'
+            };
+            const savedLoan = await api.post('/loans', payload);
+            if (setLoans) setLoans([...loans, savedLoan]);
+            
+            alert("Loan Application Submitted");
+            setLoanForm({ amount: 0, reason: '', monthlyDeduction: 0 });
+            setActiveTab('overview');
+        } catch (e: any) {
+            alert("Failed to submit loan: " + e.message);
         } finally {
             setIsSubmitting(false);
         }
@@ -80,10 +106,11 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
         <div className="space-y-6">
             <h2 className="text-2xl font-bold text-slate-800">My Dashboard</h2>
             
-            <div className="flex gap-4 border-b border-slate-200">
-                <button onClick={() => setActiveTab('overview')} className={`pb-2 px-4 font-medium ${activeTab === 'overview' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Overview & Balances</button>
-                <button onClick={() => setActiveTab('apply')} className={`pb-2 px-4 font-medium ${activeTab === 'apply' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Apply Leave</button>
-                <button onClick={() => setActiveTab('profile')} className={`pb-2 px-4 font-medium ${activeTab === 'profile' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>My Profile</button>
+            <div className="flex gap-4 border-b border-slate-200 overflow-x-auto">
+                <button onClick={() => setActiveTab('overview')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'overview' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Overview & Balances</button>
+                <button onClick={() => setActiveTab('apply')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'apply' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Apply Leave</button>
+                <button onClick={() => setActiveTab('loans')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'loans' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>Loans & Finance</button>
+                <button onClick={() => setActiveTab('profile')} className={`pb-2 px-4 font-medium whitespace-nowrap ${activeTab === 'profile' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500'}`}>My Profile</button>
             </div>
 
             {activeTab === 'overview' && (
@@ -167,6 +194,49 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
                         <button onClick={handleApplyLeave} disabled={isSubmitting} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold w-full hover:bg-blue-700 disabled:opacity-50">
                             {isSubmitting ? 'Submitting...' : 'Submit Application'}
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'loans' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200">
+                         <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Banknote size={20}/> Apply for Loan</h3>
+                         <div className="space-y-4">
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount Required</label>
+                                 <input type="number" className="w-full border p-2 rounded" value={loanForm.amount} onChange={e => setLoanForm({...loanForm, amount: parseInt(e.target.value)})} placeholder="e.g. 50000"/>
+                             </div>
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Monthly Deduction</label>
+                                 <input type="number" className="w-full border p-2 rounded" value={loanForm.monthlyDeduction} onChange={e => setLoanForm({...loanForm, monthlyDeduction: parseInt(e.target.value)})} placeholder="e.g. 5000"/>
+                             </div>
+                             <div>
+                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason</label>
+                                 <textarea className="w-full border p-2 rounded" value={loanForm.reason} onChange={e => setLoanForm({...loanForm, reason: e.target.value})} placeholder="e.g. Home Renovation"/>
+                             </div>
+                             <button onClick={handleApplyLoan} disabled={isSubmitting} className="w-full bg-slate-800 text-white py-2 rounded font-bold disabled:opacity-50">
+                                 {isSubmitting ? 'Submitting...' : 'Submit Loan Request'}
+                             </button>
+                         </div>
+                    </div>
+                    <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
+                        <h3 className="font-bold text-lg mb-4">My Loan History</h3>
+                        {(!loans || loans.filter((l:any) => l.employeeId === myEmp.id).length === 0) && (
+                            <p className="text-slate-400 italic">No loan history found.</p>
+                        )}
+                        <div className="space-y-3">
+                            {loans && loans.filter((l:any) => l.employeeId === myEmp.id).map((l: LoanRequest) => (
+                                <div key={l.id} className="bg-white p-3 rounded shadow-sm border">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="font-bold text-slate-700">RS. {l.amount.toLocaleString()}</span>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${l.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{l.status}</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mb-1">Balance: {l.remainingBalance.toLocaleString()}</p>
+                                    <p className="text-xs text-slate-400">{l.reason}</p>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}

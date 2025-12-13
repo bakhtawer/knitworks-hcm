@@ -8,7 +8,7 @@ import {
   LoanRequest, Visitor, User, ProfileChangeRequest
 } from './types';
 import { 
-  POSITIONS, INITIAL_LOANS, INITIAL_VISITORS, MOCK_USERS 
+  MOCK_USERS 
 } from './constants';
 import { api } from './utils/api';
 
@@ -64,7 +64,7 @@ export default function App() {
                   ]);
 
                   setEmployees(empData);
-                  setPositions(posData.length ? posData : []); // If empty, we might want to seed later
+                  setPositions(posData.length ? posData : []); 
                   setAttendance(attData);
                   if (userData.length > 0) setUsers(userData);
                   setLeaves(leaveData);
@@ -123,13 +123,13 @@ export default function App() {
   const renderContent = () => {
       switch(activeTab) {
           case 'dashboard': return <Dashboard employees={employees} attendance={attendance} visitors={visitors} />;
-          case 'employee_portal': return <EmployeeSelfService employees={employees} leaves={leaves} setLeaves={setLeaves} profileRequests={profileRequests} setProfileRequests={setProfileRequests} />;
+          case 'employee_portal': return <EmployeeSelfService employees={employees} leaves={leaves} setLeaves={setLeaves} profileRequests={profileRequests} setProfileRequests={setProfileRequests} loans={loans} setLoans={setLoans} />;
           case 'attendance_kiosk': return <FaceRecKiosk employees={employees} onMarkAttendance={handleAttendanceMark} />;
           case 'users': return <UserManager users={users} setUsers={setUsers} employees={employees} positions={positions} />;
-          case 'employees': return <EmployeeManager employees={employees} setEmployees={setEmployees} setUsers={setUsers} positions={positions} />;
+          case 'employees': return <EmployeeManager employees={employees} setEmployees={setEmployees} setUsers={setUsers} positions={positions} profileRequests={profileRequests} setProfileRequests={setProfileRequests} />;
           case 'leaves': return <LeaveManager leaves={leaves} setLeaves={setLeaves} />;
           case 'attendance': return <AttendanceReports attendance={attendance} employees={employees} />;
-          case 'payroll': return <PayrollSystem employees={employees} positions={positions} attendance={attendance} loans={loans} />;
+          case 'payroll': return <PayrollSystem employees={employees} positions={positions} attendance={attendance} loans={loans} setLoans={setLoans} />;
           case 'positions': return <PositionManager positions={positions} setPositions={setPositions} />;
           case 'letters': return <LetterGenerator employees={employees} />;
           case 'visitors': return <VisitorLog visitors={visitors} setVisitors={setVisitors} />;
