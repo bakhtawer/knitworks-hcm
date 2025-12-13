@@ -1,24 +1,31 @@
 
 import React, { useState } from 'react';
-import { UserPlus } from 'lucide-react';
-import { User, UserRole } from '../types';
+import { UserPlus, Database } from 'lucide-react';
+import { User, UserRole, Employee, Position } from '../types';
 import { sendEmailNotification } from '../utils/helpers';
+import { api } from '../utils/api';
+import { POSITIONS, INITIAL_EMPLOYEES, MOCK_USERS } from '../constants';
 
-export const UserManager = ({ users, setUsers, employees }: any) => {
+export const UserManager = ({ users, setUsers, employees, positions }: any) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [isSeeding, setIsSeeding] = useState(false);
     const [form, setForm] = useState<Partial<User>>({ username: '', password: '', displayName: '', roles: [], email: '' });
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!form.username || !form.password || !form.displayName || !form.email || form.roles?.length === 0) {
             alert("Please fill all required fields and select at least one role.");
             return;
         }
-        const newUser = { ...form, id: `u_${Date.now()}` } as User;
-        setUsers([...users, newUser]);
-        setIsFormOpen(false);
-        setForm({ username: '', password: '', displayName: '', roles: [], email: '' });
-        
-        sendEmailNotification(newUser.email, "Account Created", `Username: ${newUser.username}\nPassword: ${newUser.password}`);
+
+        try {
+            const savedUser = await api.post('/users', { ...form });
+            setUsers([...users, savedUser]);
+            setIsFormOpen(false);
+            setForm({ username: '', password: '', displayName: '', roles: [], email: '' });
+            sendEmailNotification(savedUser.email, "Account Created", `Username: ${savedUser.username}\nPassword: ${savedUser.password}`);
+        } catch (error: any) {
+            alert("Failed to create user: " + error.message);
+        }
     };
 
     const toggleRole = (role: UserRole) => {
@@ -30,13 +37,57 @@ export const UserManager = ({ users, setUsers, employees }: any) => {
         }
     };
 
+    const handleSeedDatabase = async () => {
+        if (!confirm("This will populate the database with initial Positions, Employees, and Users. Continue?")) return;
+        
+        setIsSeeding(true);
+        try {
+            // 1. Seed Positions
+            console.log("Seeding Positions...");
+            for (const pos of POSITIONS) {
+                // Check if exists roughly or just try create (API should handle duplicates if unique constraints exist, otherwise it adds)
+                // For simplicity, we just post. In real app, check existence first.
+                 await api.post('/positions', pos).catch(e => console.warn(`Pos ${pos.title} skipped/failed`, e.message));
+            }
+
+            // 2. Seed Employees (First 10 to avoid timeout/spam)
+            console.log("Seeding Employees...");
+            const empsToSeed = INITIAL_EMPLOYEES.slice(0, 10); 
+            for (const emp of empsToSeed) {
+                 const payload = { ...emp };
+                 // Clean up nested objects for API
+                 if (payload.leaveBalance) payload.leaveBalance = payload.leaveBalance; 
+                 await api.post('/employees', payload).catch(e => console.warn(`Emp ${emp.firstName} skipped`, e.message));
+            }
+
+            // 3. Seed Users
+            console.log("Seeding Users...");
+            for (const u of MOCK_USERS) {
+                 await api.post('/users', u).catch(e => console.warn(`User ${u.username} skipped`, e.message));
+            }
+
+            alert("Database Seeded! Please refresh the page to see data.");
+            window.location.reload();
+
+        } catch (e: any) {
+            alert("Seeding failed: " + e.message);
+        } finally {
+            setIsSeeding(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-slate-800">User Management</h2>
-                <button onClick={() => setIsFormOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                    <UserPlus size={18}/> Add User
-                </button>
+                <div className="flex gap-2">
+                    <button onClick={handleSeedDatabase} disabled={isSeeding} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 disabled:opacity-50">
+                        <Database size={18}/> {isSeeding ? 'Seeding...' : 'Seed DB with Demo Data'}
+                    </button>
+                    <button onClick={() => setIsFormOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                        <UserPlus size={18}/> Add User
+                    </button>
+                </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -52,7 +103,7 @@ export const UserManager = ({ users, setUsers, employees }: any) => {
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-1 mb-2">
-                            {u.roles.map(r => (
+                            {u.roles?.map(r => (
                                 <span key={r} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-bold uppercase">{r.replace('_', ' ')}</span>
                             ))}
                         </div>

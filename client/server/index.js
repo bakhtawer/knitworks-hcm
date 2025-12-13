@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
@@ -6,136 +7,362 @@ require('dotenv').config();
 const prisma = new PrismaClient();
 const app = express();
 
-app.use(cors());
+// --- 1. CONFIGURATION ---
+app.use(cors({
+  origin: true, 
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials: true
+}));
+
 app.use(express.json());
 
-const PORT = process.env.PORT || 3001;
-
-// --- AUTH ---
-app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
-    // Real app: use bcrypt to compare hashes
-    const user = await prisma.user.findUnique({
-        where: { username },
-        include: { employee: true }
-    });
-
-    if (user && user.passwordHash === password) { // Simulation: plain text for demo
-        res.json(user);
-    } else {
-        res.status(401).json({ error: "Invalid credentials" });
-    }
+// Logger
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
 });
 
-// --- EMPLOYEES ---
+// --- 2. ROOT ROUTES ---
+app.get('/', (req, res) => {
+    res.send('KnitWorks HCM Backend is Running. Access API at /api');
+});
+
+app.get('/api', (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'KnitWorks HCM API is ready' });
+});
+
+// --- 3. MODULE API ROUTES ---
+
+// ==========================================
+// 👥 EMPLOYEES
+// ==========================================
 app.get('/api/employees', async (req, res) => {
-    const employees = await prisma.employee.findMany({
-        include: { 
-            position: true,
-            documents: true 
-        }
-    });
-    res.json(employees);
+    try {
+        const emps = await prisma.employee.findMany({ 
+            include: { position: true, documents: true },
+            orderBy: { createdAt: 'desc' }
+        });
+        const parsed = emps.map(e => ({
+            ...e,
+            leaveBalance: e.leaveBalance ? JSON.parse(e.leaveBalance) : {},
+        }));
+        res.json(parsed);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/employees', async (req, res) => {
     try {
         const data = req.body;
-        // Map date strings to JS Date objects
-        if(data.dob) data.dob = new Date(data.dob);
-        const employee = await prisma.employee.create({ data });
-        res.json(employee);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+        if (data.dob) data.dob = new Date(data.dob);
+        if (data.joinDate) data.joinDate = new Date(data.joinDate);
+        if (data.leaveBalance) data.leaveBalance = JSON.stringify(data.leaveBalance);
+        if (data.documents) delete data.documents; // Handle separately if needed or implement nested create
+        
+        const saved = await prisma.employee.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/employees/:id', async (req, res) => {
-    const { id } = req.params;
-    const data = req.body;
-    if(data.dob) data.dob = new Date(data.dob);
-    const updated = await prisma.employee.update({
-        where: { id },
-        data
-    });
-    res.json(updated);
-});
-
-// --- ATTENDANCE ---
-app.get('/api/attendance', async (req, res) => {
-    const { date } = req.query; // YYYY-MM-DD
-    const records = await prisma.attendance.findMany({
-        where: date ? { date: new Date(date) } : undefined
-    });
-    res.json(records);
-});
-
-app.post('/api/attendance/mark', async (req, res) => {
-    const { employeeId, type, time } = req.body;
-    const today = new Date();
-    today.setHours(0,0,0,0);
-
-    const record = await prisma.attendance.upsert({
-        where: {
-            employeeId_date: {
-                employeeId,
-                date: today
-            }
-        },
-        update: type === 'IN' ? { checkIn: time } : { checkOut: time },
-        create: {
-            employeeId,
-            date: today,
-            status: 'Present',
-            checkIn: type === 'IN' ? time : null,
-            checkOut: type === 'OUT' ? time : null
+    try {
+        const { id } = req.params;
+        const data = req.body;
+        if (data.leaveBalance && typeof data.leaveBalance === 'object') {
+            data.leaveBalance = JSON.stringify(data.leaveBalance);
         }
-    });
-    res.json(record);
+        delete data.documents;
+        delete data.position;
+        const updated = await prisma.employee.update({ where: { id }, data });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- POSITIONS ---
+app.delete('/api/employees/:id', async (req, res) => {
+    try {
+        await prisma.employee.delete({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 👔 POSITIONS
+// ==========================================
 app.get('/api/positions', async (req, res) => {
-    const positions = await prisma.position.findMany();
-    res.json(positions);
+    try {
+        const data = await prisma.position.findMany();
+        const parsed = data.map(p => ({
+            ...p,
+            customAllowances: p.customAllowances ? JSON.parse(p.customAllowances) : []
+        }));
+        res.json(parsed);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/positions', async (req, res) => {
-    const pos = await prisma.position.create({ data: req.body });
-    res.json(pos);
+    try {
+        const data = req.body;
+        if (data.customAllowances) data.customAllowances = JSON.stringify(data.customAllowances);
+        const saved = await prisma.position.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- PAYROLL ---
-app.get('/api/payroll/:month', async (req, res) => {
-    const { month } = req.params; // YYYY-MM
-    const payroll = await prisma.payrollEntry.findMany({
-        where: { month },
-        include: { employee: true }
-    });
-    res.json(payroll);
+app.put('/api/positions/:id', async (req, res) => {
+    try {
+        const data = req.body;
+        if (data.customAllowances) data.customAllowances = JSON.stringify(data.customAllowances);
+        const updated = await prisma.position.update({ where: { id: req.params.id }, data });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/payroll/approve', async (req, res) => {
-    const { month, employeeId } = req.body;
-    const updated = await prisma.payrollEntry.update({
-        where: { employeeId_month: { employeeId, month } },
-        data: { status: 'Approved' }
-    });
-    res.json(updated);
+app.delete('/api/positions/:id', async (req, res) => {
+    try {
+        await prisma.position.delete({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- VISITORS ---
+// ==========================================
+// 🔐 USERS & AUTH
+// ==========================================
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await prisma.user.findUnique({ where: { username } });
+        if (user && user.passwordHash === password) {
+            const roles = user.roles ? user.roles.split(',') : [];
+            res.json({ ...user, roles });
+        } else {
+            res.status(401).json({ error: "Invalid credentials" });
+        }
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/users', async (req, res) => {
+    try {
+        const users = await prisma.user.findMany();
+        const parsed = users.map(u => ({ ...u, roles: u.roles ? u.roles.split(',') : [] }));
+        res.json(parsed);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/users', async (req, res) => {
+    try {
+        const data = req.body;
+        const passwordHash = data.password;
+        delete data.password;
+        
+        const userData = {
+            ...data,
+            passwordHash,
+            roles: Array.isArray(data.roles) ? data.roles.join(',') : data.roles
+        };
+        const saved = await prisma.user.create({ data: userData });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+    try {
+        const data = req.body;
+        if (data.password) {
+             data.passwordHash = data.password;
+             delete data.password;
+        }
+        if (data.roles && Array.isArray(data.roles)) {
+            data.roles = data.roles.join(',');
+        }
+        const updated = await prisma.user.update({ where: { id: req.params.id }, data });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+    try {
+        await prisma.user.delete({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 📅 ATTENDANCE
+// ==========================================
+app.get('/api/attendance', async (req, res) => {
+    try {
+        const { date, employeeId } = req.query;
+        const where = {};
+        if (date) where.date = new Date(date);
+        if (employeeId) where.employeeId = employeeId;
+        const data = await prisma.attendance.findMany({ where });
+        res.json(data);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/attendance', async (req, res) => {
+    try {
+        const { employeeId, type, time } = req.body;
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
+        const existing = await prisma.attendance.findFirst({
+            where: { employeeId, date: { gte: today } }
+        });
+
+        let record;
+        if (existing) {
+            record = await prisma.attendance.update({
+                where: { id: existing.id },
+                data: type === 'IN' ? { checkIn: time } : { checkOut: time }
+            });
+        } else {
+            record = await prisma.attendance.create({
+                data: {
+                    employeeId,
+                    date: today,
+                    status: 'Present',
+                    checkIn: type === 'IN' ? time : null,
+                    checkOut: type === 'OUT' ? time : null
+                }
+            });
+        }
+        res.json(record);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 📝 LEAVES
+// ==========================================
+app.get('/api/leaves', async (req, res) => {
+    try {
+        const data = await prisma.leaveRequest.findMany({ include: { employee: true } });
+        res.json(data);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/leaves', async (req, res) => {
+    try {
+        const data = req.body;
+        data.startDate = new Date(data.startDate);
+        data.endDate = new Date(data.endDate);
+        const saved = await prisma.leaveRequest.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/leaves/:id', async (req, res) => {
+    try {
+        const updated = await prisma.leaveRequest.update({ 
+            where: { id: req.params.id }, 
+            data: req.body 
+        });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 👤 VISITORS
+// ==========================================
 app.get('/api/visitors', async (req, res) => {
-    const visitors = await prisma.visitor.findMany();
-    res.json(visitors);
+    try {
+        const data = await prisma.visitor.findMany();
+        res.json(data);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/visitors', async (req, res) => {
-    const visitor = await prisma.visitor.create({ data: req.body });
-    res.json(visitor);
+    try {
+        const data = req.body;
+        const saved = await prisma.visitor.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- SERVER START ---
+app.put('/api/visitors/:id', async (req, res) => {
+    try {
+        const updated = await prisma.visitor.update({ where: { id: req.params.id }, data: req.body });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 🔄 PROFILE REQUESTS
+// ==========================================
+app.get('/api/profile-requests', async (req, res) => {
+    try {
+        const data = await prisma.profileChangeRequest.findMany({ include: { employee: true } });
+        res.json(data);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/profile-requests', async (req, res) => {
+    try {
+        const data = req.body;
+        data.requestDate = new Date(data.requestDate);
+        const saved = await prisma.profileChangeRequest.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/profile-requests/:id', async (req, res) => {
+    try {
+        const updated = await prisma.profileChangeRequest.update({ where: { id: req.params.id }, data: req.body });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 💰 LOANS
+// ==========================================
+app.get('/api/loans', async (req, res) => {
+    try {
+        const data = await prisma.loanRequest.findMany({ include: { employee: true } });
+        res.json(data);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/loans', async (req, res) => {
+    try {
+        const data = req.body;
+        data.requestDate = new Date();
+        const saved = await prisma.loanRequest.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/loans/:id', async (req, res) => {
+    try {
+        const updated = await prisma.loanRequest.update({ where: { id: req.params.id }, data: req.body });
+        res.json(updated);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==========================================
+// 🏭 PRODUCTION
+// ==========================================
+app.get('/api/production', async (req, res) => {
+    try {
+        const data = await prisma.productionRecord.findMany();
+        res.json(data);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/production', async (req, res) => {
+    try {
+        const data = req.body;
+        data.date = new Date(data.date);
+        const saved = await prisma.productionRecord.create({ data });
+        res.json(saved);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- 4. DEBUG CATCH-ALL ---
+app.use('*', (req, res) => {
+    console.warn(`404 Hit: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: `Cannot ${req.method} ${req.originalUrl}` });
+});
+
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    console.log(`HCM Backend running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });

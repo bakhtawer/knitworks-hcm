@@ -2,15 +2,30 @@
 import React, { useState } from 'react';
 import { UserPlus, Printer } from 'lucide-react';
 import { Visitor } from '../types';
+import { api } from '../utils/api';
 
 export const VisitorLog = ({ visitors, setVisitors }: { visitors: Visitor[], setVisitors: React.Dispatch<React.SetStateAction<Visitor[]>> }) => {
     const [form, setForm] = useState<Partial<Visitor>>({ name: '', cnic: '', purpose: '', checkInTime: '', badgeNumber: '' });
     const [isOpen, setIsOpen] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
-    const handleSubmit = () => {
-        const newV = { ...form, id: `v_${Date.now()}`, date: new Date().toISOString().split('T')[0] } as Visitor;
-        setVisitors([...visitors, newV]);
-        setIsOpen(false);
+    const handleSubmit = async () => {
+        setIsSaving(true);
+        try {
+            const newV = { 
+                ...form, 
+                date: new Date().toISOString().split('T')[0] 
+            };
+            const saved = await api.post('/visitors', newV);
+            setVisitors([...visitors, saved]);
+            setIsOpen(false);
+            setForm({ name: '', cnic: '', purpose: '', checkInTime: '', badgeNumber: '' });
+        } catch (e) {
+            alert("Failed to save visitor");
+            console.error(e);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handlePrintBadge = (v: Visitor) => {
@@ -47,6 +62,7 @@ export const VisitorLog = ({ visitors, setVisitors }: { visitors: Visitor[], set
                         </tr>
                     </thead>
                     <tbody>
+                        {visitors.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-400">No visitors logged today.</td></tr>}
                         {visitors.map(v => (
                             <tr key={v.id} className="border-t">
                                 <td className="p-3 font-bold">{v.name}</td>
@@ -65,11 +81,11 @@ export const VisitorLog = ({ visitors, setVisitors }: { visitors: Visitor[], set
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
                         <h3 className="font-bold text-lg">Register Visitor</h3>
-                        <input className="w-full border p-2 rounded" placeholder="Name" onChange={e => setForm({...form, name: e.target.value})} />
-                        <input className="w-full border p-2 rounded" placeholder="CNIC" onChange={e => setForm({...form, cnic: e.target.value})} />
-                        <input className="w-full border p-2 rounded" placeholder="Purpose / Host" onChange={e => setForm({...form, purpose: e.target.value})} />
-                        <input className="w-full border p-2 rounded" placeholder="Badge Number" onChange={e => setForm({...form, badgeNumber: e.target.value})} />
-                        <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-2 rounded font-bold">Register</button>
+                        <input className="w-full border p-2 rounded" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                        <input className="w-full border p-2 rounded" placeholder="CNIC" value={form.cnic} onChange={e => setForm({...form, cnic: e.target.value})} />
+                        <input className="w-full border p-2 rounded" placeholder="Purpose / Host" value={form.purpose} onChange={e => setForm({...form, purpose: e.target.value})} />
+                        <input className="w-full border p-2 rounded" placeholder="Badge Number" value={form.badgeNumber} onChange={e => setForm({...form, badgeNumber: e.target.value})} />
+                        <button onClick={handleSubmit} disabled={isSaving} className="w-full bg-blue-600 text-white py-2 rounded font-bold">{isSaving ? 'Saving...' : 'Register'}</button>
                         <button onClick={() => setIsOpen(false)} className="w-full border py-2 rounded text-slate-500">Cancel</button>
                     </div>
                 </div>

@@ -2,11 +2,13 @@
 import React, { useState } from 'react';
 import { Plus, Edit, X } from 'lucide-react';
 import { Position, EmployeeType } from '../types';
+import { api } from '../utils/api';
 
 export const PositionManager = ({ positions, setPositions }: { positions: Position[], setPositions: React.Dispatch<React.SetStateAction<Position[]>> }) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<Partial<Position>>({ title: '', baseSalary: 0, taxPercentage: 0, customAllowances: [] });
+    const [isSaving, setIsSaving] = useState(false);
     
     // Allowances State
     const [allowanceInput, setAllowanceInput] = useState({ name: '', amount: 0 });
@@ -39,15 +41,23 @@ export const PositionManager = ({ positions, setPositions }: { positions: Positi
         setIsFormOpen(true);
     };
 
-    const handleSubmit = () => {
-        if (editingId) {
-            setPositions(prev => prev.map(p => p.id === editingId ? { ...p, ...form } as Position : p));
-        } else {
-            const newPos = { ...form, id: `p_${Date.now()}` } as Position;
-            setPositions([...positions, newPos]);
+    const handleSubmit = async () => {
+        setIsSaving(true);
+        try {
+            if (editingId) {
+                const updated = await api.put(`/positions/${editingId}`, form);
+                setPositions(prev => prev.map(p => p.id === editingId ? updated : p));
+            } else {
+                const saved = await api.post('/positions', form);
+                setPositions([...positions, saved]);
+            }
+            setIsFormOpen(false);
+            setForm({ title: '', baseSalary: 0, taxPercentage: 0, customAllowances: [] });
+        } catch (e: any) {
+            alert("Failed to save position: " + e.message);
+        } finally {
+            setIsSaving(false);
         }
-        setIsFormOpen(false);
-        setForm({ title: '', baseSalary: 0, taxPercentage: 0, customAllowances: [] });
     };
 
     return (
@@ -137,7 +147,7 @@ export const PositionManager = ({ positions, setPositions }: { positions: Positi
                         </div>
                         <div className="flex justify-end gap-2 mt-6">
                             <button onClick={() => setIsFormOpen(false)} className="px-4 py-2 border rounded text-slate-600 font-bold">Cancel</button>
-                            <button onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editingId ? 'Update Position' : 'Save Position'}</button>
+                            <button onClick={handleSubmit} disabled={isSaving} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{isSaving ? 'Saving...' : (editingId ? 'Update Position' : 'Save Position')}</button>
                         </div>
                     </div>
                 </div>

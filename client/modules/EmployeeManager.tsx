@@ -1,16 +1,19 @@
 
 import React, { useState, useRef } from 'react';
 import { 
-  UserPlus, Eye, Edit, Camera, Upload, File, Download, Trash2, X, AlertCircle
+  UserPlus, Eye, Edit, Camera, Upload, File, Download, Trash2, X, AlertCircle, Inbox, Check
 } from 'lucide-react';
-import { Employee, Position, User, UserRole, EmployeeType, ManagementLevel, Division, Department, ShiftType, EmployeeDocument } from '../types';
+import { Employee, Position, User, UserRole, EmployeeType, ManagementLevel, Division, Department, ShiftType, EmployeeDocument, ProfileChangeRequest } from '../types';
 import { sendEmailNotification } from '../utils/helpers';
+import { api } from '../utils/api';
 
-export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }: any) => {
+export const EmployeeManager = ({ employees, setEmployees, setUsers, positions, profileRequests, setProfileRequests }: any) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [viewMode, setViewMode] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'personal'|'job'|'leaves'|'docs'>('personal');
+    const [showRequests, setShowRequests] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     
     const [form, setForm] = useState<Partial<Employee>>({
         firstName: '', lastName: '', cnic: '', email: '', salaryType: 'Monthly', 
@@ -56,74 +59,148 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
                 id: `doc_${Date.now()}_${Math.random()}`,
                 name: file.name,
                 type: file.type,
-                url: URL.createObjectURL(file), // Simulation
+                url: URL.createObjectURL(file), 
                 uploadDate: new Date().toISOString().split('T')[0]
             }));
             setForm(prev => ({ ...prev, documents: [...(prev.documents || []), ...newDocs] }));
         }
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (viewMode) { setIsFormOpen(false); return; }
+        setIsSaving(true);
 
-        if (editingId) {
-            const updated = employees.map((e: Employee) => e.id === editingId ? { ...e, ...form } : e);
-            setEmployees(updated);
-            alert("Employee Updated Successfully");
-        } else {
-            const id = `e_${Date.now()}`;
-            const finalEmp = { ...form, id, isActive: true, joinDate: new Date().toISOString().split('T')[0] } as Employee;
-            setEmployees([...employees, finalEmp]);
+        try {
+            if (editingId) {
+                const updated = await api.put(`/employees/${editingId}`, form);
+                setEmployees((prev: Employee[]) => prev.map(e => e.id === editingId ? updated : e));
+                alert("Employee Updated Successfully");
+            } else {
+                const newEmpData = { 
+                    ...form, 
+                    isActive: true, 
+                    joinDate: form.joinDate || new Date().toISOString().split('T')[0],
+                    medicalAllowance: form.medicalAllowance || 0,
+                    providentFund: form.providentFund || 0,
+                    mobileAllowance: form.mobileAllowance || 0,
+                    foodAllowance: form.foodAllowance || 0
+                };
 
-            // Auto Generate User
-            const pos = positions.find((p: Position) => p.id === form.positionId);
-            let role = UserRole.LINE_MANAGER;
-            if (pos?.type === EmployeeType.MANAGEMENT) {
-                role = UserRole.MANAGEMENT_STAFF;
-                if (pos.level === ManagementLevel.HOD) role = UserRole.HOD;
-                if (pos.level === ManagementLevel.DIRECTOR) role = UserRole.DIRECTOR;
+                const savedEmp = await api.post('/employees', newEmpData);
+                setEmployees((prev: Employee[]) => [savedEmp, ...prev]);
+
+                const pos = positions.find((p: Position) => p.id === form.positionId);
+                let role = UserRole.LINE_MANAGER;
+                if (pos?.type === EmployeeType.MANAGEMENT) {
+                    role = UserRole.MANAGEMENT_STAFF;
+                    if (pos.level === ManagementLevel.HOD) role = UserRole.HOD;
+                    if (pos.level === ManagementLevel.DIRECTOR) role = UserRole.DIRECTOR;
+                }
+
+                const newUserPayload = {
+                    username: form.email?.split('@')[0] || `user_${savedEmp.id.substring(0,5)}`,
+                    password: '123',
+                    roles: [role],
+                    displayName: `${form.firstName} ${form.lastName}`,
+                    employeeId: savedEmp.id,
+                    email: form.email || ''
+                };
+
+                const savedUser = await api.post('/users', newUserPayload);
+                setUsers((prev: User[]) => [...prev, savedUser]);
+                
+                sendEmailNotification(
+                    savedUser.email,
+                    "Welcome to KnitWorks HCM",
+                    `Your account has been created.\nUsername: ${savedUser.username}\nPassword: 123`
+                );
             }
-
-            const newUser: User = {
-                id: `u_${Date.now()}`,
-                username: form.email?.split('@')[0] || `user_${id}`,
-                password: '123',
-                roles: [role],
-                displayName: `${form.firstName} ${form.lastName}`,
-                employeeId: id,
-                email: form.email || ''
-            };
-
-            setUsers((prev: User[]) => [...prev, newUser]);
-            
-            // Email Notification
-            sendEmailNotification(
-                newUser.email,
-                "Welcome to KnitWorks HCM",
-                `Your account has been created.\nUsername: ${newUser.username}\nPassword: 123`
-            );
+            setIsFormOpen(false);
+        } catch (error: any) {
+            console.error("Save failed:", error);
+            alert("Failed to save employee: " + error.message);
+        } finally {
+            setIsSaving(false);
         }
-        setIsFormOpen(false);
     };
+
+    const handleResolveRequest = async (reqId: string) => {
+        try {
+             const updated = await api.put(`/profile-requests/${reqId}`, { status: 'Resolved' });
+             setProfileRequests((prev: any[]) => prev.map(r => r.id === reqId ? updated : r));
+        } catch (e: any) {
+            alert("Failed to resolve request: " + e.message);
+        }
+    };
+
+    if (showRequests) {
+        return (
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold text-slate-800">Profile Change Requests</h2>
+                    <button onClick={() => setShowRequests(false)} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold">Back to Directory</button>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-50">
+                            <tr>
+                                <th className="p-3">Employee</th>
+                                <th className="p-3">Date</th>
+                                <th className="p-3">Request Details</th>
+                                <th className="p-3">Status</th>
+                                <th className="p-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {profileRequests && profileRequests.length > 0 ? profileRequests.map((r: ProfileChangeRequest) => {
+                                const emp = employees.find((e:Employee) => e.id === r.employeeId);
+                                return (
+                                    <tr key={r.id} className="border-b">
+                                        <td className="p-3 font-bold">{emp ? `${emp.firstName} ${emp.lastName}` : r.employeeId}</td>
+                                        <td className="p-3">{new Date(r.requestDate).toLocaleDateString()}</td>
+                                        <td className="p-3 text-slate-600">{r.details}</td>
+                                        <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${r.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{r.status}</span></td>
+                                        <td className="p-3">
+                                            {r.status === 'Pending' && (
+                                                <button onClick={() => handleResolveRequest(r.id)} className="bg-blue-100 text-blue-700 px-3 py-1 rounded font-bold text-xs flex items-center gap-1 hover:bg-blue-200">
+                                                    <Check size={14}/> Mark Resolved
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                )
+                            }) : <tr><td colSpan={5} className="p-6 text-center text-slate-400">No pending requests.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-slate-800">Employee Directory</h2>
-                <button onClick={handleAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                    <UserPlus size={18}/> Add Employee
-                </button>
+                <div className="flex gap-2">
+                    <button onClick={() => setShowRequests(true)} className="bg-white border text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 relative">
+                        <Inbox size={18}/> Requests
+                        {profileRequests.filter((r:any) => r.status === 'Pending').length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center">{profileRequests.filter((r:any) => r.status === 'Pending').length}</span>}
+                    </button>
+                    <button onClick={handleAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                        <UserPlus size={18}/> Add Employee
+                    </button>
+                </div>
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {employees.map((emp: Employee) => (
                     <div key={emp.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4 group hover:border-blue-300 transition-all">
                          <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 overflow-hidden shrink-0">
-                             {emp.profilePicture ? <img src={emp.profilePicture} alt="" className="w-full h-full object-cover"/> : `${emp.firstName[0]}${emp.lastName[0]}`}
+                             {emp.profilePicture ? <img src={emp.profilePicture} alt="" className="w-full h-full object-cover"/> : `${emp.firstName?.[0] || '?'}${emp.lastName?.[0] || '?'}`}
                          </div>
                          <div className="flex-1 overflow-hidden">
                              <h4 className="font-bold flex items-center gap-2 truncate">{emp.firstName} {emp.lastName} 
-                                <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500">{emp.id}</span>
+                                <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 truncate">{emp.id}</span>
                              </h4>
                              <p className="text-xs text-slate-500 truncate">{emp.department} • {emp.shift}</p>
                          </div>
@@ -167,7 +244,7 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
                                          <input className="border p-3 rounded" placeholder="Last Name" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} disabled={viewMode} />
                                          <input className="border p-3 rounded" placeholder="Father Name" value={form.fatherName} onChange={e => setForm({...form, fatherName: e.target.value})} disabled={viewMode} />
                                          <input className="border p-3 rounded" placeholder="CNIC (e.g. 42101...)" value={form.cnic} onChange={e => setForm({...form, cnic: e.target.value})} disabled={viewMode} />
-                                         <input className="border p-3 rounded" type="date" placeholder="Date of Birth" value={form.dob} onChange={e => setForm({...form, dob: e.target.value})} disabled={viewMode} />
+                                         <input className="border p-3 rounded" type="date" placeholder="Date of Birth" value={form.dob ? new Date(form.dob).toISOString().split('T')[0] : ''} onChange={e => setForm({...form, dob: e.target.value})} disabled={viewMode} />
                                          <select className="border p-3 rounded" value={form.gender} onChange={e => setForm({...form, gender: e.target.value as any})} disabled={viewMode}>
                                              <option value="Male">Male</option>
                                              <option value="Female">Female</option>
@@ -210,6 +287,10 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
                                              <option value="Monthly">Monthly</option>
                                              <option value="Hourly">Hourly</option>
                                          </select>
+                                     </div>
+                                     <div>
+                                         <label className="text-xs font-bold text-slate-500 uppercase">Join Date</label>
+                                         <input type="date" className="w-full border p-3 rounded mt-1" value={form.joinDate ? new Date(form.joinDate).toISOString().split('T')[0] : ''} onChange={e => setForm({...form, joinDate: e.target.value})} disabled={viewMode} />
                                      </div>
                                 </div>
                              )}
@@ -276,7 +357,9 @@ export const EmployeeManager = ({ employees, setEmployees, setUsers, positions }
                              )}
                         </div>
                         <div className="p-6 border-t border-slate-100 flex justify-end gap-2 bg-slate-50">
-                             {!viewMode && <button onClick={handleSubmit} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">Save Employee Record</button>}
+                             {!viewMode && <button onClick={handleSubmit} disabled={isSaving} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all disabled:opacity-50">
+                                {isSaving ? 'Saving...' : 'Save Employee Record'}
+                             </button>}
                              <button onClick={() => setIsFormOpen(false)} className="bg-white border text-slate-700 px-6 py-3 rounded-lg font-bold hover:bg-slate-50">Close</button>
                         </div>
                      </div>

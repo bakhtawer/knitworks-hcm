@@ -1,0 +1,265 @@
+// ------------------------------
+// Datasource & Generator
+// ------------------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------
+// ENUMS (Converted from CHECK constraints)
+// ------------------------------
+
+enum PositionType {
+  Labor
+  Management
+}
+
+enum SalaryType {
+  Monthly
+  Hourly
+}
+
+enum AttendanceStatus {
+  Present
+  Absent
+  Late
+  HalfDay
+  Leave
+}
+
+enum LeaveType {
+  Sick
+  Casual
+  Annual
+  ShortLeave
+}
+
+enum LeaveStatus {
+  Pending
+  DeptApproved
+  Approved
+  Rejected
+}
+
+enum ProfileRequestStatus {
+  Pending
+  Resolved
+}
+
+enum PayrollStatus {
+  Draft
+  Approved
+  Paid
+}
+
+// ------------------------------
+// 1. POSITIONS
+// ------------------------------
+
+model positions {
+  id               String   @id @default(uuid()) @db.Uuid
+  title            String
+  base_salary      Decimal  @db.Decimal(10, 2)
+  salary_cap       Decimal? @db.Decimal(10, 2)
+  tax_percentage   Decimal? @default(0) @db.Decimal(5, 2)
+  type             PositionType?
+  level            String?
+  overtime_rate    Decimal? @default(1.0) @db.Decimal(3, 2)
+  custom_allowances Json?   @default("[]")
+
+  employees employees[]
+}
+
+// ------------------------------
+// 2. EMPLOYEES
+// ------------------------------
+
+model employees {
+  id                    String     @id @default(uuid()) @db.Uuid
+  first_name            String
+  last_name             String
+  father_name           String?
+  cnic                  String     @unique
+  email                 String?    @unique
+  dob                   DateTime?
+  gender                String?
+  marital_status        String?
+  dependents            Int        @default(0)
+  profile_picture_url   String?
+
+  // Relations
+  position_id           String?    @db.Uuid
+  positions             positions? @relation(fields: [position_id], references: [id])
+
+  department            String
+  division              String
+  shift                 String
+  join_date             DateTime
+  salary_type           SalaryType?
+  is_active             Boolean     @default(true)
+
+  bank_account          String?
+
+  // Leave balances
+  cl_balance            Int @default(10)
+  al_balance            Int @default(14)
+  sl_balance            Int @default(8)
+  hd_count              Int @default(0)
+  short_leave_balance   Int @default(12)
+
+  // Allowances
+  medical_allowance     Decimal @default(0) @db.Decimal(10, 2)
+  mobile_allowance      Decimal @default(0) @db.Decimal(10, 2)
+  food_allowance        Decimal @default(0) @db.Decimal(10, 2)
+  provident_fund_pct    Decimal @default(0) @db.Decimal(5, 2)
+
+  created_at            DateTime  @default(now())
+
+  // Relations
+  documents             documents[]
+  users                 users[]
+  attendance            attendance[]
+  leave_requests        leave_requests[]
+  profile_requests      profile_requests[]
+  payroll_records       payroll_records[]
+  visitors              visitors[]
+}
+
+// ------------------------------
+// 3. DOCUMENTS
+// ------------------------------
+
+model documents {
+  id           String   @id @default(uuid()) @db.Uuid
+  employee_id  String?  @db.Uuid
+  name         String?
+  type         String?
+  url          String
+  upload_date  DateTime @default(now())
+
+  employees employees? @relation(fields: [employee_id], references: [id])
+}
+
+// ------------------------------
+// 4. USERS (authentication)
+// ------------------------------
+
+model users {
+  id            String   @id @default(uuid()) @db.Uuid
+  username      String   @unique
+  password_hash String
+  email         String   @unique
+  display_name  String?
+  roles         Json
+  employee_id   String?  @db.Uuid
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+
+  employees employees? @relation(fields: [employee_id], references: [id])
+  leave_requests leave_requests[] @relation("approvedByRel")
+}
+
+// ------------------------------
+// 5. ATTENDANCE LOGS
+// ------------------------------
+
+model attendance {
+  id              String            @id @default(uuid()) @db.Uuid
+  employee_id     String?           @db.Uuid
+  date            DateTime
+  check_in        DateTime?
+  check_out       DateTime?
+  status          AttendanceStatus?
+  hours_worked    Decimal @default(0) @db.Decimal(4, 2)
+  overtime_hours  Decimal @default(0) @db.Decimal(4, 2)
+  is_short_leave  Boolean @default(false)
+
+  employees employees? @relation(fields: [employee_id], references: [id])
+
+  @@unique([employee_id, date])
+}
+
+// ------------------------------
+// 6. LEAVE REQUESTS
+// ------------------------------
+
+model leave_requests {
+  id               String       @id @default(uuid()) @db.Uuid
+  employee_id      String?      @db.Uuid
+  start_date       DateTime
+  end_date         DateTime
+  type             LeaveType
+  reason           String?
+  status           LeaveStatus  @default(Pending)
+  rejection_reason String?
+  is_paid          Boolean      @default(true)
+  approved_by      String?      @db.Uuid
+  created_at       DateTime     @default(now())
+
+  employees employees? @relation(fields: [employee_id], references: [id])
+  users     users?     @relation("approvedByRel", fields: [approved_by], references: [id])
+}
+
+// ------------------------------
+// 7. PROFILE CHANGE REQUESTS
+// ------------------------------
+
+model profile_requests {
+  id            String                @id @default(uuid()) @db.Uuid
+  employee_id   String?               @db.Uuid
+  request_date  DateTime              @default(now())
+  details       String
+  status        ProfileRequestStatus  @default(Pending)
+
+  employees employees? @relation(fields: [employee_id], references: [id])
+}
+
+// ------------------------------
+// 8. PAYROLL HISTORY
+// ------------------------------
+
+model payroll_records {
+  id               String    @id @default(uuid()) @db.Uuid
+  employee_id      String?   @db.Uuid
+  month_year       String
+
+  base_salary      Decimal? @db.Decimal(10, 2)
+  total_allowances Decimal? @db.Decimal(10, 2)
+  overtime_pay     Decimal? @db.Decimal(10, 2)
+  gross_salary     Decimal? @db.Decimal(10, 2)
+
+  tax_deduction    Decimal? @db.Decimal(10, 2)
+  pf_deduction     Decimal? @db.Decimal(10, 2)
+  loan_deduction   Decimal? @db.Decimal(10, 2)
+  late_deduction   Decimal? @db.Decimal(10, 2)
+
+  net_salary       Decimal? @db.Decimal(10, 2)
+  status           PayrollStatus @default(Draft)
+  approved_by      String?
+  generated_at     DateTime @default(now())
+
+  employees employees? @relation(fields: [employee_id], references: [id])
+}
+
+// ------------------------------
+// 9. VISITORS
+// ------------------------------
+
+model visitors {
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String?
+  cnic             String?
+  purpose          String?
+  host_employee_id String?   @db.Uuid
+  check_in_time    DateTime  @default(now())
+  check_out_time   DateTime?
+  date             DateTime  @default(now())
+  badge_number     String?
+
+  employees employees? @relation(fields: [host_employee_id], references: [id])
+}

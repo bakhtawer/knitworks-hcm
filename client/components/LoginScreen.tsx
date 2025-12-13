@@ -1,20 +1,38 @@
 
 import React, { useState } from 'react';
 import { User } from '../types';
+import { api } from '../utils/api';
 import { MOCK_USERS } from '../constants';
 
 export const LoginScreen = ({ onLogin }: { onLogin: (u: User) => void }) => {
     const [username, setUsername] = useState('hr_admin');
     const [password, setPassword] = useState('123');
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        const found = MOCK_USERS.find(u => u.username === username && u.password === password);
-        if (found) {
-            onLogin(found);
-        } else {
-            setError('Invalid credentials');
+        setError('');
+        setIsLoading(true);
+
+        try {
+            // Try API Login first
+            const user = await api.post('/login', { username, password });
+            onLogin(user);
+        } catch (err) {
+            console.warn("API Login failed, checking mocks...", err);
+            // Fallback to Mock if API fails (for demo purposes/initial setup)
+            // In a real production app, you might remove this fallback
+            const found = MOCK_USERS.find(u => u.username === username && u.password === password);
+            if (found) {
+                 // Clone to avoid reference issues
+                 onLogin({...found});
+                 // Ideally, we warn the user they are in offline/demo mode
+            } else {
+                setError('Invalid credentials or Server Unreachable');
+            }
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -30,14 +48,14 @@ export const LoginScreen = ({ onLogin }: { onLogin: (u: User) => void }) => {
                 <form onSubmit={handleLogin} className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                        <input className="w-full p-3 border rounded-lg" value={username} onChange={e => setUsername(e.target.value)} />
+                        <input className="w-full p-3 border rounded-lg" value={username} onChange={e => setUsername(e.target.value)} disabled={isLoading} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                        <input className="w-full p-3 border rounded-lg" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+                        <input className="w-full p-3 border rounded-lg" type="password" value={password} onChange={e => setPassword(e.target.value)} disabled={isLoading} />
                     </div>
-                    <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors">
-                        Sign In
+                    <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">
+                        {isLoading ? 'Authenticating...' : 'Sign In'}
                     </button>
                 </form>
                 <div className="mt-8 pt-6 border-t border-slate-100">
