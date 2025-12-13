@@ -10,7 +10,7 @@ export const API_BASE_URL = 'http://localhost:3001/api';
 // =========================================================================================
 
 // 👇 OPTIONAL: If not using Env Vars, paste your Render URL here 👇
-const HARDCODED_RENDER_URL = 'https://REPLACE_THIS_WITH_YOUR_RENDER_URL.onrender.com/api'; 
+const HARDCODED_RENDER_URL = 'https://knitworks-hcm.onrender.com/api'; 
 const LOCAL_URL = 'http://localhost:3001/api';
 
 const getBaseUrl = () => {
