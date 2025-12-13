@@ -4,6 +4,7 @@ import { UserCog, Send } from 'lucide-react';
 import { Employee, LeaveRequest, ProfileChangeRequest } from '../types';
 import { UserContext } from '../context/UserContext';
 import { sendEmailNotification } from '../utils/helpers';
+import { api } from '../utils/api';
 
 export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileRequests, setProfileRequests }: any) => {
     const { user } = React.useContext(UserContext);
@@ -12,56 +13,67 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
     const [activeTab, setActiveTab] = useState<'overview' | 'apply' | 'profile'>('overview');
     const [leaveForm, setLeaveForm] = useState({ type: 'Casual', startDate: '', endDate: '', reason: '' });
     const [profileReq, setProfileReq] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     if (!myEmp) return <div className="p-8 text-center text-slate-400">Employee record not found for this user.</div>;
 
-    const handleApplyLeave = () => {
-        const newLeave: LeaveRequest = {
-            id: `l_${Date.now()}`,
-            employeeId: myEmp.id,
-            startDate: leaveForm.startDate,
-            endDate: leaveForm.endDate || leaveForm.startDate,
-            reason: leaveForm.reason,
-            status: 'Pending',
-            type: leaveForm.type as any,
-            isPaid: true
-        };
-        setLeaves([...leaves, newLeave]);
-        
-        // Notify
-        sendEmailNotification(
-            "hr@knitworks.com", 
-            `New Leave Request: ${myEmp.firstName} ${myEmp.lastName}`, 
-            `Type: ${newLeave.type}\nReason: ${newLeave.reason}\nDates: ${newLeave.startDate} - ${newLeave.endDate}`
-        );
-        sendEmailNotification(
-            myEmp.email,
-            "Leave Application Submitted",
-            "Your leave application has been submitted and is pending approval."
-        );
+    const handleApplyLeave = async () => {
+        setIsSubmitting(true);
+        try {
+            const payload = {
+                employeeId: myEmp.id,
+                startDate: leaveForm.startDate,
+                endDate: leaveForm.endDate || leaveForm.startDate,
+                reason: leaveForm.reason,
+                status: 'Pending',
+                type: leaveForm.type as any,
+                isPaid: true
+            };
+            const savedLeave = await api.post('/leaves', payload);
+            setLeaves([...leaves, savedLeave]);
+            
+            // Notify
+            sendEmailNotification(
+                "hr@knitworks.com", 
+                `New Leave Request: ${myEmp.firstName} ${myEmp.lastName}`, 
+                `Type: ${savedLeave.type}\nReason: ${savedLeave.reason}\nDates: ${savedLeave.startDate} - ${savedLeave.endDate}`
+            );
 
-        setActiveTab('overview');
+            setActiveTab('overview');
+            setLeaveForm({ type: 'Casual', startDate: '', endDate: '', reason: '' });
+        } catch (e: any) {
+            alert("Failed to submit leave: " + e.message);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
-    const handleProfileRequest = () => {
+    const handleProfileRequest = async () => {
         if (!profileReq) return;
-        const req: ProfileChangeRequest = {
-            id: `req_${Date.now()}`,
-            employeeId: myEmp.id,
-            requestDate: new Date().toISOString().split('T')[0],
-            details: profileReq,
-            status: 'Pending'
-        };
-        setProfileRequests([...profileRequests, req]);
-        
-        // Notify
-        sendEmailNotification(
-            "hr@knitworks.com",
-            `Profile Change Request: ${myEmp.firstName} ${myEmp.lastName}`,
-            `Request Details: ${profileReq}`
-        );
-        setProfileReq('');
-        alert("Request Submitted to HR");
+        setIsSubmitting(true);
+        try {
+            const payload = {
+                employeeId: myEmp.id,
+                requestDate: new Date().toISOString(),
+                details: profileReq,
+                status: 'Pending'
+            };
+            const savedReq = await api.post('/profile-requests', payload);
+            setProfileRequests([...profileRequests, savedReq]);
+            
+            // Notify
+            sendEmailNotification(
+                "hr@knitworks.com",
+                `Profile Change Request: ${myEmp.firstName} ${myEmp.lastName}`,
+                `Request Details: ${profileReq}`
+            );
+            setProfileReq('');
+            alert("Request Submitted to HR");
+        } catch (e: any) {
+            alert("Failed to submit request: " + e.message);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -78,19 +90,19 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                      <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-xl shadow-lg">
                          <div className="text-sm opacity-80 mb-2">Casual Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance.cl} <span className="text-sm font-normal opacity-70">Remaining</span></div>
+                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.cl || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
                      </div>
                      <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-6 rounded-xl shadow-lg">
                          <div className="text-sm opacity-80 mb-2">Annual Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance.al} <span className="text-sm font-normal opacity-70">Remaining</span></div>
+                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.al || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
                      </div>
                      <div className="bg-gradient-to-br from-pink-500 to-pink-600 text-white p-6 rounded-xl shadow-lg">
                          <div className="text-sm opacity-80 mb-2">Sick Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance.sl} <span className="text-sm font-normal opacity-70">Remaining</span></div>
+                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.sl || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
                      </div>
                      <div className="bg-gradient-to-br from-amber-500 to-amber-600 text-white p-6 rounded-xl shadow-lg">
                          <div className="text-sm opacity-80 mb-2">Short Leaves</div>
-                         <div className="text-3xl font-bold">{myEmp.leaveBalance.short_leaves} <span className="text-sm font-normal opacity-70">Remaining</span></div>
+                         <div className="text-3xl font-bold">{myEmp.leaveBalance?.short_leaves || 0} <span className="text-sm font-normal opacity-70">Remaining</span></div>
                      </div>
 
                      <div className="md:col-span-4 bg-white rounded-xl border border-slate-200 p-6">
@@ -152,7 +164,9 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
                              <label className="block text-sm font-bold text-slate-700 mb-1">Reason</label>
                              <textarea className="w-full border p-2 rounded h-24" value={leaveForm.reason} onChange={e => setLeaveForm({...leaveForm, reason: e.target.value})} placeholder="Why are you taking this leave?" />
                         </div>
-                        <button onClick={handleApplyLeave} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold w-full hover:bg-blue-700">Submit Application</button>
+                        <button onClick={handleApplyLeave} disabled={isSubmitting} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold w-full hover:bg-blue-700 disabled:opacity-50">
+                            {isSubmitting ? 'Submitting...' : 'Submit Application'}
+                        </button>
                     </div>
                 </div>
             )}
@@ -194,8 +208,8 @@ export const EmployeeSelfService = ({ employees, leaves, setLeaves, profileReque
                             value={profileReq}
                             onChange={e => setProfileReq(e.target.value)}
                         />
-                        <button onClick={handleProfileRequest} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 w-full justify-center">
-                            <Send size={16}/> Send Request to HR
+                        <button onClick={handleProfileRequest} disabled={isSubmitting} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 w-full justify-center disabled:opacity-50">
+                            <Send size={16}/> {isSubmitting ? 'Sending...' : 'Send Request to HR'}
                         </button>
                     </div>
                 </div>

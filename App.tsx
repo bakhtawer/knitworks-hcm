@@ -39,12 +39,12 @@ export default function App() {
   
   // Data State - Initialize empty, fetch from DB
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]); // Fallback to POSITIONS if API fails
+  const [positions, setPositions] = useState<Position[]>([]); 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [loans, setLoans] = useState<LoanRequest[]>(INITIAL_LOANS); // Add API later
+  const [loans, setLoans] = useState<LoanRequest[]>([]); 
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
-  const [visitors, setVisitors] = useState<Visitor[]>(INITIAL_VISITORS); // Add API later
-  const [users, setUsers] = useState<User[]>(MOCK_USERS); // Start with Mock, replace with API
+  const [visitors, setVisitors] = useState<Visitor[]>([]); 
+  const [users, setUsers] = useState<User[]>(MOCK_USERS); // Start with Mock for login, then fetch
   const [profileRequests, setProfileRequests] = useState<ProfileChangeRequest[]>([]);
 
   // Fetch Data on Login
@@ -52,25 +52,28 @@ export default function App() {
       if (user) {
           const fetchData = async () => {
               try {
-                  const [empData, posData, attData, userData, leaveData] = await Promise.all([
+                  const [empData, posData, attData, userData, leaveData, visitorData, loanData, profileReqData] = await Promise.all([
                       api.get('/employees').catch(() => []),
-                      api.get('/positions').catch(() => POSITIONS),
+                      api.get('/positions').catch(() => []),
                       api.get('/attendance').catch(() => []),
-                      api.get('/users').catch(() => MOCK_USERS),
+                      api.get('/users').catch(() => []),
                       api.get('/leaves').catch(() => []),
+                      api.get('/visitors').catch(() => []),
+                      api.get('/loans').catch(() => []),
+                      api.get('/profile-requests').catch(() => []),
                   ]);
 
                   setEmployees(empData);
-                  setPositions(posData.length ? posData : POSITIONS);
+                  setPositions(posData.length ? posData : []); // If empty, we might want to seed later
                   setAttendance(attData);
-                  // Only override users if we actually got some from DB
                   if (userData.length > 0) setUsers(userData);
                   setLeaves(leaveData);
+                  setVisitors(visitorData);
+                  setLoans(loanData);
+                  setProfileRequests(profileReqData);
 
               } catch (error) {
                   console.error("Error fetching initial data", error);
-                  // Fallback for demo if backend is down
-                  setPositions(POSITIONS);
               }
           };
           fetchData();
@@ -122,7 +125,7 @@ export default function App() {
           case 'dashboard': return <Dashboard employees={employees} attendance={attendance} visitors={visitors} />;
           case 'employee_portal': return <EmployeeSelfService employees={employees} leaves={leaves} setLeaves={setLeaves} profileRequests={profileRequests} setProfileRequests={setProfileRequests} />;
           case 'attendance_kiosk': return <FaceRecKiosk employees={employees} onMarkAttendance={handleAttendanceMark} />;
-          case 'users': return <UserManager users={users} setUsers={setUsers} employees={employees} />;
+          case 'users': return <UserManager users={users} setUsers={setUsers} employees={employees} positions={positions} />;
           case 'employees': return <EmployeeManager employees={employees} setEmployees={setEmployees} setUsers={setUsers} positions={positions} />;
           case 'leaves': return <LeaveManager leaves={leaves} setLeaves={setLeaves} />;
           case 'attendance': return <AttendanceReports attendance={attendance} employees={employees} />;
