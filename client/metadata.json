@@ -1,0 +1,7 @@
+{
+  "name": "Copy of KnitWorks HCM",
+  "description": "A comprehensive HR and Payroll management system tailored for the knitting manufacturing industry, featuring hierarchy management, automated payroll calculations, attendance tracking, and AI-powered insights.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
