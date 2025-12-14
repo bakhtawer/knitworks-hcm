@@ -8,10 +8,11 @@ const prisma = new PrismaClient();
 const app = express();
 
 // --- 1. CONFIGURATION ---
+// Allow all origins for easier development connectivity
 app.use(cors({
-  origin: true, 
+  origin: '*', 
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
@@ -27,6 +28,7 @@ app.get('/', (req, res) => {
     res.send('KnitWorks HCM Backend is Running. Access API at /api');
 });
 
+// Health check endpoint
 app.get('/api', (req, res) => {
     res.status(200).json({ status: 'ok', message: 'KnitWorks HCM API is ready' });
 });
@@ -56,7 +58,7 @@ app.post('/api/employees', async (req, res) => {
         if (data.dob) data.dob = new Date(data.dob);
         if (data.joinDate) data.joinDate = new Date(data.joinDate);
         if (data.leaveBalance) data.leaveBalance = JSON.stringify(data.leaveBalance);
-        if (data.documents) delete data.documents; // Handle separately if needed or implement nested create
+        if (data.documents) delete data.documents; 
         
         const saved = await prisma.employee.create({ data });
         res.json(saved);
@@ -358,8 +360,11 @@ app.post('/api/production', async (req, res) => {
 
 // --- 4. DEBUG CATCH-ALL ---
 app.use('*', (req, res) => {
-    console.warn(`404 Hit: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({ error: `Cannot ${req.method} ${req.originalUrl}` });
+    console.warn(`⚠️ 404 URL MISMATCH: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ 
+        error: `Route not found: ${req.originalUrl}`,
+        hint: "Did you forget the '/api' prefix in your frontend BASE_URL?" 
+    });
 });
 
 const PORT = process.env.PORT || 3001;
