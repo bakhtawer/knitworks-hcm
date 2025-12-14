@@ -1,11 +1,12 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Users, LayoutDashboard, CalendarDays, DollarSign, Briefcase, FileText, 
-  ScanFace, FileSignature, UserCheck, UserPlus, Lock, LogOut 
+  ScanFace, FileSignature, UserCheck, UserPlus, Lock, LogOut, Wifi, WifiOff 
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { UserContext } from '../context/UserContext';
+import { api, BASE_URL } from '../utils/api';
 
 export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: { 
   activeTab: string; 
@@ -14,6 +15,16 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: {
   setIsOpen: (o: boolean) => void;
 }) => {
   const { user, logout } = React.useContext(UserContext);
+  const [isOnline, setIsOnline] = useState(false);
+
+  // Check connection status on mount
+  useEffect(() => {
+    const checkStatus = async () => {
+        const healthy = await api.checkHealth();
+        setIsOnline(healthy);
+    };
+    checkStatus();
+  }, []);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.HR_ADMIN, UserRole.HOD, UserRole.DIRECTOR, UserRole.LINE_MANAGER, UserRole.AUDITOR] },
@@ -81,8 +92,15 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen }: {
           </button>
         </nav>
         
-        <div className="absolute bottom-4 left-0 right-0 text-center text-[10px] text-slate-600">
-            Build: v2.0.1 (Stable)
+        {/* CONNECTION STATUS INDICATOR */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 bg-slate-900/50">
+            <div className={`flex items-center justify-center gap-2 text-[10px] font-bold py-1 rounded ${isOnline ? 'bg-emerald-900/30 text-emerald-400' : 'bg-red-900/30 text-red-400'}`}>
+                {isOnline ? <Wifi size={12}/> : <WifiOff size={12}/>}
+                {isOnline ? 'ONLINE: RENDER' : 'OFFLINE: MOCK MODE'}
+            </div>
+            <div className="text-center text-[9px] text-slate-600 mt-1 truncate px-2">
+                {isOnline ? BASE_URL.replace('https://', '') : 'Local Data Only'}
+            </div>
         </div>
       </div>
     </>
