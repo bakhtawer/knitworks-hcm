@@ -6,8 +6,9 @@ import { AttendanceRecord, ProfileChangeRequest } from '../types';
 // 🔌 API CONNECTION SETTINGS
 // =========================================================================================
 
-// 1️⃣ PASTE YOUR RENDER API URL HERE (Keep the '/api' at the end)
-// Example: 'https://my-app.onrender.com/api'
+// 1️⃣ PASTE YOUR RENDER API URL HERE 
+// It should look like: 'https://your-app-name.onrender.com'
+// (The code below will automatically add '/api' if you forget it)
 const RENDER_BACKEND_URL: string = 'https://knitworks-hcm.onrender.com/api'; 
 
 // =========================================================================================
@@ -17,9 +18,14 @@ const getBaseUrl = () => {
     // @ts-ignore
     if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
     
-    // Priority 2: Hardcoded Render URL
+    // Priority 2: Hardcoded Render URL (With Auto-Fix for missing /api)
     if (RENDER_BACKEND_URL && RENDER_BACKEND_URL.length > 5) {
-        return RENDER_BACKEND_URL.endsWith('/') ? RENDER_BACKEND_URL.slice(0, -1) : RENDER_BACKEND_URL;
+        let url = RENDER_BACKEND_URL.trim();
+        // Remove trailing slash
+        if (url.endsWith('/')) url = url.slice(0, -1);
+        // Ensure it ends with /api
+        if (!url.endsWith('/api')) url = `${url}/api`;
+        return url;
     }
 
     // Priority 3: Localhost (Default)
@@ -47,12 +53,17 @@ const mockStore = {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const handleMockCall = async (method: string, endpoint: string, data?: any) => {
+const handleMockCall = async (method: string, endpoint: string, data?: any, originalError?: any) => {
     // ⚠️ CRITICAL: If user is trying to connect to a real server, DO NOT silently fail to mock for write operations.
-    // This ensures you know if your data is actually being saved to the DB or not.
     if (IS_PRODUCTION_URL && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
-        console.error(`❌ API Error: Failed to connect to ${BASE_URL}. Connection refused or timeout.`);
-        throw new Error(`Connection Failed: Could not save data to Server (${BASE_URL}). Check internet or server status.`);
+        console.error(`❌ API Error for ${endpoint}:`, originalError);
+        
+        let errorMsg = `Connection Failed: Could not save data to Server (${BASE_URL}).`;
+        if (originalError) {
+            errorMsg += `\n\nDetails: ${originalError.message || originalError}`;
+        }
+        
+        throw new Error(errorMsg);
     }
 
     console.warn(`⚠️ [OFFLINE MODE] Using Mock Data for ${method} ${endpoint}`);
@@ -209,11 +220,31 @@ const handleMockCall = async (method: string, endpoint: string, data?: any) => {
     return { success: true };
 };
 
+// Helper for long timeouts (Render Cold Start)
+const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
+    const { timeout = 60000 } = options as any; // Default 60s timeout for Render Cold Start
+    
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(id);
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        throw error;
+    }
+};
+
 export const api = {
     // Health Check
     checkHealth: async () => {
         try {
-            const res = await fetch(`${BASE_URL}`);
+            const res = await fetchWithTimeout(`${BASE_URL}`, { method: 'GET', timeout: 5000 } as any);
             return res.ok;
         } catch {
             return false;
@@ -222,61 +253,74 @@ export const api = {
 
     get: async (endpoint: string) => {
         try {
-            const res = await fetch(`${BASE_URL}${endpoint}`);
+            const res = await fetchWithTimeout(`${BASE_URL}${endpoint}`);
             if (!res.ok) throw new Error(`Status ${res.status}`);
             return await res.json();
         } catch (error) {
-            return handleMockCall('GET', endpoint);
+            return handleMockCall('GET', endpoint, undefined, error);
         }
     },
     post: async (endpoint: string, data: any) => {
         try {
-            const res = await fetch(`${BASE_URL}${endpoint}`, {
+            const res = await fetchWithTimeout(`${BASE_URL}${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
-            if (!res.ok) throw new Error(`Status ${res.status}`);
+            if (!res.ok) {
+                // Try to get actual server error message
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Status ${res.status}`);
+            }
             return await res.json();
         } catch (error) {
-            return handleMockCall('POST', endpoint, data);
+            return handleMockCall('POST', endpoint, data, error);
         }
     },
     put: async (endpoint: string, data: any) => {
         try {
-            const res = await fetch(`${BASE_URL}${endpoint}`, {
+            const res = await fetchWithTimeout(`${BASE_URL}${endpoint}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
-            if (!res.ok) throw new Error(`Status ${res.status}`);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Status ${res.status}`);
+            }
             return await res.json();
         } catch (error) {
-            return handleMockCall('PUT', endpoint, data);
+            return handleMockCall('PUT', endpoint, data, error);
         }
     },
     patch: async (endpoint: string, data: any) => {
         try {
-            const res = await fetch(`${BASE_URL}${endpoint}`, {
+            const res = await fetchWithTimeout(`${BASE_URL}${endpoint}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
-            if (!res.ok) throw new Error(`Status ${res.status}`);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Status ${res.status}`);
+            }
             return await res.json();
         } catch (error) {
-            return handleMockCall('PATCH', endpoint, data);
+            return handleMockCall('PATCH', endpoint, data, error);
         }
     },
     delete: async (endpoint: string) => {
         try {
-            const res = await fetch(`${BASE_URL}${endpoint}`, {
+            const res = await fetchWithTimeout(`${BASE_URL}${endpoint}`, {
                 method: 'DELETE',
             });
-            if (!res.ok) throw new Error(`Status ${res.status}`);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Status ${res.status}`);
+            }
             return await res.json();
         } catch (error) {
-            return handleMockCall('DELETE', endpoint);
+            return handleMockCall('DELETE', endpoint, undefined, error);
         }
     }
 };
