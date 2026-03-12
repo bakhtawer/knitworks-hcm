@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { 
   Employee, Position, AttendanceRecord, LeaveRequest, 
-  LoanRequest, Visitor, User, ProfileChangeRequest
+  LoanRequest, Visitor, User, ProfileChangeRequest, AttendanceStatus
 } from './types';
 import { 
   MOCK_USERS 
@@ -29,6 +29,7 @@ import { PayrollSystem } from './modules/PayrollSystem';
 import { PositionManager } from './modules/PositionManager';
 import { LetterGenerator } from './modules/LetterGenerator';
 import { VisitorLog } from './modules/VisitorLog';
+import { SystemRules } from './modules/SystemRules';
 
 
 // --- Main App Wrapper ---
@@ -99,7 +100,7 @@ export default function App() {
               id: `temp_${Date.now()}`,
               employeeId: empId,
               date: todayStr,
-              status: 'Present',
+              status: AttendanceStatus.PRESENT,
               checkIn: timeNow,
               hoursWorked: 0,
               overtimeHours: 0,
@@ -133,6 +134,7 @@ export default function App() {
           case 'positions': return <PositionManager positions={positions} setPositions={setPositions} />;
           case 'letters': return <LetterGenerator employees={employees} />;
           case 'visitors': return <VisitorLog visitors={visitors} setVisitors={setVisitors} />;
+          case 'system_rules': return <SystemRules />;
           default: return <div className="p-8 text-center text-slate-400">Module Under Construction</div>;
       }
   };

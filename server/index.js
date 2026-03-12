@@ -1,368 +1,113 @@
 
 const express = require('express');
 const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
-require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
+const ZKLib = require('node-zklib');
 
-const prisma = new PrismaClient();
+// =========================================================================================
+// 🔑 SUPABASE CONFIG (Must match your frontend)
+// =========================================================================================
+const SUPABASE_URL = 'https://ozumuexybyjoshznggod.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96dW11ZXh5Ynlqb3Noem5nZ29kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxOTY0NTMsImV4cCI6MjA4MDc3MjQ1M30.FieuMVFYlYF5Zi7CawLOxmdSNFbKPrXAX8NqYuQLDLw';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 const app = express();
-
-// --- 1. CONFIGURATION ---
-app.use(cors({
-  origin: true, 
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  credentials: true
-}));
-
+app.use(cors());
 app.use(express.json());
 
-// Logger
-app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-    next();
-});
-
-// --- 2. ROOT ROUTES ---
-app.get('/', (req, res) => {
-    res.send('KnitWorks HCM Backend is Running. Access API at /api');
-});
-
-app.get('/api', (req, res) => {
-    res.status(200).json({ status: 'ok', message: 'KnitWorks HCM API is ready' });
-});
-
-// --- 3. MODULE API ROUTES ---
-
 // ==========================================
-// 👥 EMPLOYEES
+// 🛡️ BIOMETRIC HARDWARE ACTIONS
 // ==========================================
-app.get('/api/employees', async (req, res) => {
+
+// 1. Test Connection to Device
+app.post('/api/biometric/test', async (req, res) => {
+    const { ip, port } = req.body;
+    console.log(`📡 Attempting to connect to device at ${ip}:${port}...`);
+    const zkInstance = new ZKLib(ip, parseInt(port) || 4370, 10000, 4000);
+    
     try {
-        const emps = await prisma.employee.findMany({ 
-            include: { position: true, documents: true },
-            orderBy: { createdAt: 'desc' }
-        });
-        const parsed = emps.map(e => ({
-            ...e,
-            leaveBalance: e.leaveBalance ? JSON.parse(e.leaveBalance) : {},
-        }));
-        res.json(parsed);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        await zkInstance.createSocket();
+        const info = await zkInstance.getInfo();
+        await zkInstance.disconnect();
+        res.json({ success: true, message: "Connected to ZKTeco Device", device: info });
+    } catch (e) {
+        console.error("❌ ZK Connection Error:", e);
+        res.status(500).json({ success: false, error: e.message || "Failed to reach device. Ensure it's on the same network." });
+    }
 });
 
-app.post('/api/employees', async (req, res) => {
+// 2. Sync Attendance Logs to Supabase
+app.post('/api/biometric/sync', async (req, res) => {
+    const { ip, port } = req.body;
+    const zkInstance = new ZKLib(ip, parseInt(port) || 4370, 10000, 4000);
+    
     try {
-        const data = req.body;
-        if (data.dob) data.dob = new Date(data.dob);
-        if (data.joinDate) data.joinDate = new Date(data.joinDate);
-        if (data.leaveBalance) data.leaveBalance = JSON.stringify(data.leaveBalance);
-        if (data.documents) delete data.documents; // Handle separately if needed or implement nested create
+        await zkInstance.createSocket();
+        const logs = await zkInstance.getAttendance();
+        console.log(`📥 Fetched ${logs.data.length} logs from device.`);
         
-        const saved = await prisma.employee.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+        let syncCount = 0;
+        for (const log of logs.data) {
+            // Find employee by external ID (deviceUserId)
+            // Note: We match device ID with the numeric part of system ID or a custom field
+            const searchId = log.deviceUserId.toString();
+            
+            const { data: employee } = await supabase
+                .from('employees')
+                .select('id')
+                .or(`id.eq.e_${searchId},id.eq.${searchId}`)
+                .maybeSingle();
 
-app.put('/api/employees/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const data = req.body;
-        if (data.leaveBalance && typeof data.leaveBalance === 'object') {
-            data.leaveBalance = JSON.stringify(data.leaveBalance);
-        }
-        delete data.documents;
-        delete data.position;
-        const updated = await prisma.employee.update({ where: { id }, data });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+            if (employee) {
+                const logDate = new Date(log.recordTime);
+                const dateStr = logDate.toISOString().split('T')[0];
+                const timeStr = logDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-app.delete('/api/employees/:id', async (req, res) => {
-    try {
-        await prisma.employee.delete({ where: { id: req.params.id } });
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+                // Check for existing record for this employee on this date
+                const { data: existing } = await supabase
+                    .from('attendance')
+                    .select('*')
+                    .eq('employeeId', employee.id)
+                    .eq('date', dateStr)
+                    .maybeSingle();
 
-// ==========================================
-// 👔 POSITIONS
-// ==========================================
-app.get('/api/positions', async (req, res) => {
-    try {
-        const data = await prisma.position.findMany();
-        const parsed = data.map(p => ({
-            ...p,
-            customAllowances: p.customAllowances ? JSON.parse(p.customAllowances) : []
-        }));
-        res.json(parsed);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/positions', async (req, res) => {
-    try {
-        const data = req.body;
-        if (data.customAllowances) data.customAllowances = JSON.stringify(data.customAllowances);
-        const saved = await prisma.position.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/positions/:id', async (req, res) => {
-    try {
-        const data = req.body;
-        if (data.customAllowances) data.customAllowances = JSON.stringify(data.customAllowances);
-        const updated = await prisma.position.update({ where: { id: req.params.id }, data });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/positions/:id', async (req, res) => {
-    try {
-        await prisma.position.delete({ where: { id: req.params.id } });
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ==========================================
-// 🔐 USERS & AUTH
-// ==========================================
-app.post('/api/login', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const user = await prisma.user.findUnique({ where: { username } });
-        if (user && user.passwordHash === password) {
-            const roles = user.roles ? user.roles.split(',') : [];
-            res.json({ ...user, roles });
-        } else {
-            res.status(401).json({ error: "Invalid credentials" });
-        }
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.get('/api/users', async (req, res) => {
-    try {
-        const users = await prisma.user.findMany();
-        const parsed = users.map(u => ({ ...u, roles: u.roles ? u.roles.split(',') : [] }));
-        res.json(parsed);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/users', async (req, res) => {
-    try {
-        const data = req.body;
-        const passwordHash = data.password;
-        delete data.password;
-        
-        const userData = {
-            ...data,
-            passwordHash,
-            roles: Array.isArray(data.roles) ? data.roles.join(',') : data.roles
-        };
-        const saved = await prisma.user.create({ data: userData });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/users/:id', async (req, res) => {
-    try {
-        const data = req.body;
-        if (data.password) {
-             data.passwordHash = data.password;
-             delete data.password;
-        }
-        if (data.roles && Array.isArray(data.roles)) {
-            data.roles = data.roles.join(',');
-        }
-        const updated = await prisma.user.update({ where: { id: req.params.id }, data });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/users/:id', async (req, res) => {
-    try {
-        await prisma.user.delete({ where: { id: req.params.id } });
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ==========================================
-// 📅 ATTENDANCE
-// ==========================================
-app.get('/api/attendance', async (req, res) => {
-    try {
-        const { date, employeeId } = req.query;
-        const where = {};
-        if (date) where.date = new Date(date);
-        if (employeeId) where.employeeId = employeeId;
-        const data = await prisma.attendance.findMany({ where });
-        res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/attendance', async (req, res) => {
-    try {
-        const { employeeId, type, time } = req.body;
-        const today = new Date();
-        today.setHours(0,0,0,0);
-
-        const existing = await prisma.attendance.findFirst({
-            where: { employeeId, date: { gte: today } }
-        });
-
-        let record;
-        if (existing) {
-            record = await prisma.attendance.update({
-                where: { id: existing.id },
-                data: type === 'IN' ? { checkIn: time } : { checkOut: time }
-            });
-        } else {
-            record = await prisma.attendance.create({
-                data: {
-                    employeeId,
-                    date: today,
-                    status: 'Present',
-                    checkIn: type === 'IN' ? time : null,
-                    checkOut: type === 'OUT' ? time : null
+                if (existing) {
+                    // Update checkOut if the current log is later than existing checkIn
+                    // In a real manufacturing scenario, we'd handle multiple ins/outs
+                    await supabase
+                        .from('attendance')
+                        .update({ checkOut: timeStr })
+                        .eq('id', existing.id);
+                } else {
+                    // Create new present record
+                    await supabase
+                        .from('attendance')
+                        .insert([{
+                            id: `att_zk_${Date.now()}_${syncCount}`,
+                            employeeId: employee.id,
+                            date: dateStr,
+                            status: 'Present',
+                            checkIn: timeStr,
+                            hoursWorked: 0,
+                            overtimeHours: 0,
+                            isShortLeave: false
+                        }]);
                 }
-            });
+                syncCount++;
+            }
         }
-        res.json(record);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+
+        await zkInstance.disconnect();
+        res.json({ success: true, synced: syncCount });
+    } catch (e) {
+        console.error("❌ ZK Sync Error:", e);
+        res.status(500).json({ error: e.message });
+    }
 });
 
-// ==========================================
-// 📝 LEAVES
-// ==========================================
-app.get('/api/leaves', async (req, res) => {
-    try {
-        const data = await prisma.leaveRequest.findMany({ include: { employee: true } });
-        res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/leaves', async (req, res) => {
-    try {
-        const data = req.body;
-        data.startDate = new Date(data.startDate);
-        data.endDate = new Date(data.endDate);
-        const saved = await prisma.leaveRequest.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/leaves/:id', async (req, res) => {
-    try {
-        const updated = await prisma.leaveRequest.update({ 
-            where: { id: req.params.id }, 
-            data: req.body 
-        });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ==========================================
-// 👤 VISITORS
-// ==========================================
-app.get('/api/visitors', async (req, res) => {
-    try {
-        const data = await prisma.visitor.findMany();
-        res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/visitors', async (req, res) => {
-    try {
-        const data = req.body;
-        const saved = await prisma.visitor.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/visitors/:id', async (req, res) => {
-    try {
-        const updated = await prisma.visitor.update({ where: { id: req.params.id }, data: req.body });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ==========================================
-// 🔄 PROFILE REQUESTS
-// ==========================================
-app.get('/api/profile-requests', async (req, res) => {
-    try {
-        const data = await prisma.profileChangeRequest.findMany({ include: { employee: true } });
-        res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/profile-requests', async (req, res) => {
-    try {
-        const data = req.body;
-        data.requestDate = new Date(data.requestDate);
-        const saved = await prisma.profileChangeRequest.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/profile-requests/:id', async (req, res) => {
-    try {
-        const updated = await prisma.profileChangeRequest.update({ where: { id: req.params.id }, data: req.body });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ==========================================
-// 💰 LOANS
-// ==========================================
-app.get('/api/loans', async (req, res) => {
-    try {
-        const data = await prisma.loanRequest.findMany({ include: { employee: true } });
-        res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/loans', async (req, res) => {
-    try {
-        const data = req.body;
-        data.requestDate = new Date();
-        const saved = await prisma.loanRequest.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/loans/:id', async (req, res) => {
-    try {
-        const updated = await prisma.loanRequest.update({ where: { id: req.params.id }, data: req.body });
-        res.json(updated);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ==========================================
-// 🏭 PRODUCTION
-// ==========================================
-app.get('/api/production', async (req, res) => {
-    try {
-        const data = await prisma.productionRecord.findMany();
-        res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/production', async (req, res) => {
-    try {
-        const data = req.body;
-        data.date = new Date(data.date);
-        const saved = await prisma.productionRecord.create({ data });
-        res.json(saved);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// --- 4. DEBUG CATCH-ALL ---
-app.use('*', (req, res) => {
-    console.warn(`404 Hit: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({ error: `Cannot ${req.method} ${req.originalUrl}` });
-});
-
-const PORT = process.env.PORT || 3001;
+const PORT = 3001;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`🚀 KnitWorks Hardware Bridge running on http://localhost:${PORT}`);
+    console.log(`👉 Point your web browser app to this local address in the Face Recognition tab.`);
 });

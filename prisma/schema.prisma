@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  password     String?
+  roles        String   // Stored as comma-separated string for simplicity with MySQL
+  employeeId   String?
+  displayName  String
+  email        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Position {
+  id                String   @id @default(cuid())
+  title             String
+  baseSalary        Float
+  salaryCap         Float?
+  taxPercentage     Float
+  type              String   // EmployeeType enum
+  level             String?  // ManagementLevel enum
+  targetDailyOutput Float?
+  overtimeRate      Float
+  customAllowances  Json?    // Array of { name: string; amount: number }
+  employees         Employee[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Employee {
+  id                String   @id @default(cuid())
+  firstName         String
+  lastName          String
+  cnic              String   @unique
+  dob               String
+  gender            String
+  maritalStatus     String
+  fatherName        String
+  dependents        Int
+  profilePicture    String?
+  email             String
+  
+  positionId        String
+  position          Position @relation(fields: [positionId], references: [id])
+  
+  joinDate          String
+  division          String   // Division enum
+  department        String   // Department enum
+  shift             String   // ShiftType enum
+  isActive          Boolean  @default(true)
+  employmentStatus  String   @default("Probation") // EmploymentStatus enum
+  salaryType        String?
+  
+  bankAccount       String?
+  emergencyContact  String?
+  
+  documents         Json?    // Array of EmployeeDocument
+  leaveBalance      Json?    // { cl, al, sl, hd_count, short_leaves }
+  
+  medicalAllowance  Float
+  providentFund     Float
+  mobileAllowance   Float
+  foodAllowance     Float
+  customAllowances  Json?    // Array of { name: string; amount: number; taxPercentage: number }
+
+  attendance        AttendanceRecord[]
+  leaves            LeaveRequest[]
+  profileRequests   ProfileChangeRequest[]
+  loans             LoanRequest[]
+  visitors          Visitor[] @relation("HostEmployee")
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AttendanceRecord {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  date          String
+  status        String   // 'Present' | 'Absent' | 'Late' | 'Leave' | 'HalfDay'
+  checkIn       String?
+  checkOut      String?
+  hoursWorked   Float
+  overtimeHours Float
+  isShortLeave  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([employeeId, date])
+}
+
+model LeaveRequest {
+  id              String   @id @default(cuid())
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  startDate       String
+  endDate         String
+  reason          String
+  status          String   // 'Pending' | 'DeptApproved' | 'Approved' | 'Rejected'
+  type            String   // 'Sick' | 'Casual' | 'Annual' | 'ShortLeave'
+  isPaid          Boolean
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ProfileChangeRequest {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  requestDate String
+  details     String
+  status      String   // 'Pending' | 'Resolved'
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LoanRequest {
+  id                String   @id @default(cuid())
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  amount            Float
+  reason            String
+  status            String   // 'Pending' | 'Approved' | 'Rejected' | 'Paid'
+  monthlyDeduction  Float
+  remainingBalance  Float
+  requestDate       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Visitor {
+  id              String   @id @default(cuid())
+  name            String
+  cnic            String
+  purpose         String
+  hostEmployeeId  String
+  hostEmployee    Employee @relation("HostEmployee", fields: [hostEmployeeId], references: [id])
+  checkInTime     String
+  checkOutTime    String?
+  date            String
+  badgeNumber     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model SystemSettings {
+  id                String   @id @default(cuid())
+  allowedLates      Int      @default(3)
+  lateDeductionDays Float    @default(1.0)
+  attendanceBonus   Float    @default(2000.0)
+  foodAllowanceLabor Float   @default(100.0)
+  loanLimitPercent  Float    @default(50.0)
+  overtimeRate      Float    @default(1.5)
+  halfDayDeduction  Float    @default(0.5)
+  taxSlab1          Float    @default(600000)
+  taxRate1          Float    @default(2.5)
+  updatedAt         DateTime @updatedAt
+}

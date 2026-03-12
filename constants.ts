@@ -1,5 +1,5 @@
 
-import { Employee, EmployeeType, ManagementLevel, Position, AttendanceRecord, LeaveRequest, ShiftType, LoanRequest, ProductionRecord, Division, Department, LetterType, User, UserRole, Visitor } from './types';
+import { Employee, EmployeeType, ManagementLevel, Position, AttendanceRecord, LeaveRequest, ShiftType, LoanRequest, ProductionRecord, Division, Department, LetterType, User, UserRole, Visitor, EmploymentStatus, AttendanceStatus } from './types';
 
 // --- MOCK USERS FOR LOGIN ---
 export const MOCK_USERS: User[] = [
@@ -64,7 +64,7 @@ const generateEmployees = (): Employee[] => {
     id: 'e_ceo', firstName: 'Ahsan', lastName: 'Malik', fatherName: 'Abdul Malik', cnic: '42101-0000000-1', email: 'ceo@knitworks.com',
     dob: '1970-01-01', gender: 'Male', maritalStatus: 'Married', dependents: 2,
     positionId: 'p_ceo', joinDate: '2015-01-01', division: Division.MARKETING, department: Department.ADMIN, shift: ShiftType.MORNING,
-    isActive: true, salaryType: 'Monthly', medicalAllowance: 50000, providentFund: 10, mobileAllowance: 20000, foodAllowance: 15000,
+    isActive: true, employmentStatus: EmploymentStatus.PERMANENT, salaryType: 'Monthly', medicalAllowance: 50000, providentFund: 10, mobileAllowance: 20000, foodAllowance: 15000,
     documents: [], leaveBalance: { cl: 10, al: 14, sl: 8, hd_count: 0, short_leaves: 12 }
   });
 
@@ -99,6 +99,7 @@ const generateEmployees = (): Employee[] => {
         department: dept,
         shift: shift,
         isActive: true,
+        employmentStatus: EmploymentStatus.PERMANENT,
         salaryType: 'Monthly',
         medicalAllowance: pos.type === EmployeeType.MANAGEMENT ? 5000 : 2000,
         providentFund: 5,
@@ -164,7 +165,7 @@ export const generateMockAttendance = (employees: Employee[], monthOffset: numbe
        
        if (!isSunday) {
          const random = Math.random();
-         let status: AttendanceRecord['status'] = 'Present';
+         let status: AttendanceStatus = AttendanceStatus.PRESENT;
          let checkIn = `${String(shiftStartH).padStart(2,'0')}:00`;
          let checkOut = `${String((shiftStartH + 8) % 24).padStart(2,'0')}:00`;
          let hours = 8;
@@ -173,10 +174,10 @@ export const generateMockAttendance = (employees: Employee[], monthOffset: numbe
 
          // Simulation Logic
          if (random > 0.90) { 
-            status = 'Absent'; hours = 0; checkIn = ''; checkOut = '';
+            status = AttendanceStatus.ABSENT; hours = 0; checkIn = ''; checkOut = '';
          } else if (random > 0.80) { 
             // Late Logic
-            status = 'Late'; 
+            status = AttendanceStatus.LATE; 
             const minutesLate = Math.floor(Math.random() * 150); // 0 to 150 mins late
             
             // Late CheckIn Time
@@ -186,7 +187,7 @@ export const generateMockAttendance = (employees: Employee[], monthOffset: numbe
 
             // Rule: After 2 hours (120 mins) = Half Day
             if (minutesLate > 120) {
-              status = 'HalfDay';
+              status = AttendanceStatus.HALFDAY;
               hours = 4;
             } else {
               hours = 8 - (minutesLate/60);

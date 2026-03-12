@@ -1,7 +1,8 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { PayrollEntry } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export const generatePayrollReport = async (payrollData: PayrollEntry[], month: string, comparisonData?: PayrollEntry[]): Promise<string> => {
   try {
@@ -37,7 +38,7 @@ export const generatePayrollReport = async (payrollData: PayrollEntry[], month: 
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
 

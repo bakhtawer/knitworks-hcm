@@ -1,106 +1,75 @@
 
-export const API_BASE_URL = 'http://localhost:3001/api';
-
 // =========================================================================================
-// 🌍 API CONNECTION CONFIGURATION
+// 🔌 API CONFIGURATION
 // =========================================================================================
-// Priority 1: Environment Variable (Vercel / Render Setting)
-// Priority 2: Hardcoded Render URL (Fallback)
-// Priority 3: Localhost (Development)
-// =========================================================================================
-
-// 👇 OPTIONAL: If not using Env Vars, paste your Render URL here 👇
-const HARDCODED_RENDER_URL = 'https://REPLACE_THIS_WITH_YOUR_RENDER_URL.onrender.com/api'; 
-const LOCAL_URL = 'http://localhost:3001/api';
-
-const getBaseUrl = () => {
-    // 1. Try Environment Variables (Vite or CRA)
-    // @ts-ignore
-    if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-    // @ts-ignore
-    if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
-
-    // 2. Check if user has hardcoded the Render URL in this file
-    const isRenderConfigured = !HARDCODED_RENDER_URL.includes('REPLACE_THIS');
-
-    if (isRenderConfigured) {
-        // Remove trailing slash if present to avoid double slashes
-        const cleanUrl = HARDCODED_RENDER_URL.endsWith('/') ? HARDCODED_RENDER_URL.slice(0, -1) : HARDCODED_RENDER_URL;
-        // Ensure it ends with /api
-        return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
-    }
-
-    // 3. Fallback to Localhost
-    return LOCAL_URL;
-};
-
-const BASE_URL = getBaseUrl();
-
-// Debug Log (Visible in Browser Console)
-console.log(`🔌 API Configured. Connected to: ${BASE_URL}`);
+export const BASE_URL = '/api';
 
 export const api = {
+    checkHealth: async () => {
+        try {
+            const res = await fetch(`${BASE_URL}/users`);
+            return res.ok;
+        } catch {
+            return false;
+        }
+    },
+
     get: async (endpoint: string) => {
         try {
             const res = await fetch(`${BASE_URL}${endpoint}`);
-            if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
+            if (!res.ok) throw new Error('Failed to fetch');
             return await res.json();
-        } catch (error) {
-            console.error(`GET ${endpoint} failed:`, error);
-            throw error;
+        } catch (error: any) {
+            console.error(`API GET ${endpoint} failed:`, error);
+            return [];
         }
     },
-    post: async (endpoint: string, data: any) => {
+
+    post: async (endpoint: string, payload: any) => {
         try {
             const res = await fetch(`${BASE_URL}${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+                body: JSON.stringify(payload)
             });
-            if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to create record');
+            }
             return await res.json();
-        } catch (error) {
-            console.error(`POST ${endpoint} failed:`, error);
+        } catch (error: any) {
+            console.error(`❌ API POST ${endpoint} Error:`, error);
             throw error;
         }
     },
-    put: async (endpoint: string, data: any) => {
+
+    put: async (endpoint: string, payload: any) => {
         try {
             const res = await fetch(`${BASE_URL}${endpoint}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+                body: JSON.stringify(payload)
             });
-            if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to update record');
+            }
             return await res.json();
-        } catch (error) {
-            console.error(`PUT ${endpoint} failed:`, error);
+        } catch (error: any) {
+            console.error(`❌ API PUT ${endpoint} Error:`, error);
             throw error;
         }
     },
-    patch: async (endpoint: string, data: any) => {
-        try {
-            const res = await fetch(`${BASE_URL}${endpoint}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
-            });
-            if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
-            return await res.json();
-        } catch (error) {
-            console.error(`PATCH ${endpoint} failed:`, error);
-            throw error;
-        }
-    },
+
     delete: async (endpoint: string) => {
         try {
             const res = await fetch(`${BASE_URL}${endpoint}`, {
-                method: 'DELETE',
+                method: 'DELETE'
             });
-            if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
-            return await res.json();
-        } catch (error) {
-            console.error(`DELETE ${endpoint} failed:`, error);
+            if (!res.ok) throw new Error('Failed to delete record');
+            return { success: true };
+        } catch (error: any) {
+            console.error(`❌ API DELETE ${endpoint} Error:`, error);
             throw error;
         }
     }

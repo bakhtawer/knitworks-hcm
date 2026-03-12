@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { UserPlus, Database } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { UserPlus, Database, RefreshCw, AlertTriangle, CheckCircle2, Check } from 'lucide-react';
 import { User, UserRole, Employee, Position } from '../types';
 import { sendEmailNotification } from '../utils/helpers';
 import { api } from '../utils/api';
@@ -9,22 +9,49 @@ import { POSITIONS, INITIAL_EMPLOYEES, MOCK_USERS } from '../constants';
 export const UserManager = ({ users, setUsers, employees, positions }: any) => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [isSeeding, setIsSeeding] = useState(false);
+    const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
+    const [errors, setErrors] = useState<Record<string, boolean>>({});
     const [form, setForm] = useState<Partial<User>>({ username: '', password: '', displayName: '', roles: [], email: '' });
 
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
+
+    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+    const validateForm = () => {
+        const newErrors: Record<string, boolean> = {};
+        if (!form.username?.trim()) newErrors.username = true;
+        if (!form.password || form.password.length < 3) newErrors.password = true;
+        if (!form.displayName?.trim()) newErrors.displayName = true;
+        if (!form.email || !isValidEmail(form.email)) newErrors.email = true;
+        if (!form.roles || form.roles.length === 0) newErrors.roles = true;
+        
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
     const handleSubmit = async () => {
-        if (!form.username || !form.password || !form.displayName || !form.email || form.roles?.length === 0) {
-            alert("Please fill all required fields and select at least one role.");
+        if (!validateForm()) {
+            setToast({ msg: "Incomplete details. Password must be 3+ chars and roles assigned.", type: 'error' });
             return;
         }
 
         try {
-            const savedUser = await api.post('/users', { ...form });
+            const savedUser = await api.post('/users', { 
+                ...form,
+                passwordHash: form.password
+            });
             setUsers([...users, savedUser]);
             setIsFormOpen(false);
             setForm({ username: '', password: '', displayName: '', roles: [], email: '' });
-            sendEmailNotification(savedUser.email, "Account Created", `Username: ${savedUser.username}\nPassword: ${savedUser.password}`);
+            setToast({ msg: `User '@${savedUser.username}' created successfully!`, type: 'success' });
+            sendEmailNotification(savedUser.email, "Account Created", `Username: ${savedUser.username}\nPassword: ${form.password}`);
         } catch (error: any) {
-            alert("Failed to create user: " + error.message);
+            setToast({ msg: "Failed: " + error.message, type: 'error' });
         }
     };
 
@@ -38,39 +65,20 @@ export const UserManager = ({ users, setUsers, employees, positions }: any) => {
     };
 
     const handleSeedDatabase = async () => {
-        if (!confirm("This will populate the database with initial Positions, Employees, and Users. Continue?")) return;
+        if (!confirm("Populate database with demo data? This skips existing records.")) return;
         
         setIsSeeding(true);
+        let successCount = 0;
         try {
-            // 1. Seed Positions
-            console.log("Seeding Positions...");
-            for (const pos of POSITIONS) {
-                // Check if exists roughly or just try create (API should handle duplicates if unique constraints exist, otherwise it adds)
-                // For simplicity, we just post. In real app, check existence first.
-                 await api.post('/positions', pos).catch(e => console.warn(`Pos ${pos.title} skipped/failed`, e.message));
-            }
-
-            // 2. Seed Employees (First 10 to avoid timeout/spam)
-            console.log("Seeding Employees...");
+            for (const pos of POSITIONS) { try { await api.post('/positions', pos); successCount++; } catch (e) {} }
             const empsToSeed = INITIAL_EMPLOYEES.slice(0, 10); 
-            for (const emp of empsToSeed) {
-                 const payload = { ...emp };
-                 // Clean up nested objects for API
-                 if (payload.leaveBalance) payload.leaveBalance = payload.leaveBalance; 
-                 await api.post('/employees', payload).catch(e => console.warn(`Emp ${emp.firstName} skipped`, e.message));
-            }
+            for (const emp of empsToSeed) { try { await api.post('/employees', emp); successCount++; } catch (e) {} }
+            for (const u of MOCK_USERS) { try { await api.post('/users', { ...u, passwordHash: u.password }); successCount++; } catch (e) {} }
 
-            // 3. Seed Users
-            console.log("Seeding Users...");
-            for (const u of MOCK_USERS) {
-                 await api.post('/users', u).catch(e => console.warn(`User ${u.username} skipped`, e.message));
-            }
-
-            alert("Database Seeded! Please refresh the page to see data.");
-            window.location.reload();
-
+            setToast({ msg: `Database seed finished. ${successCount} records processed.`, type: 'success' });
+            setTimeout(() => window.location.reload(), 1500);
         } catch (e: any) {
-            alert("Seeding failed: " + e.message);
+            setToast({ msg: "Seed error: " + e.message, type: 'error' });
         } finally {
             setIsSeeding(false);
         }
@@ -78,65 +86,91 @@ export const UserManager = ({ users, setUsers, employees, positions }: any) => {
 
     return (
         <div className="space-y-6">
+            {toast && (
+                <div className={`fixed top-4 right-4 z-[100] flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl animate-in slide-in-from-right-10 duration-300 ${toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                    {toast.type === 'success' ? <CheckCircle2 size={24}/> : <AlertTriangle size={24}/>}
+                    <span className="font-bold">{toast.msg}</span>
+                </div>
+            )}
+
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-slate-800">User Management</h2>
                 <div className="flex gap-2">
                     <button onClick={handleSeedDatabase} disabled={isSeeding} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 disabled:opacity-50">
-                        <Database size={18}/> {isSeeding ? 'Seeding...' : 'Seed DB with Demo Data'}
+                        {isSeeding ? <RefreshCw size={18} className="animate-spin"/> : <Database size={18}/>}
+                        {isSeeding ? 'Seeding...' : 'Seed DB'}
                     </button>
-                    <button onClick={() => setIsFormOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                    <button onClick={() => { setForm({ username: '', password: '', displayName: '', roles: [], email: '' }); setErrors({}); setIsFormOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-blue-200">
                         <UserPlus size={18}/> Add User
                     </button>
                 </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {users.length === 0 && <div className="col-span-full p-12 text-center text-slate-400 border-2 border-dashed rounded-xl font-medium">No users found. Use 'Seed DB' to start.</div>}
                 {users.map((u: User) => (
-                    <div key={u.id} className="bg-white p-5 rounded-xl border shadow-sm">
+                    <div key={u.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:border-blue-200 transition-all">
                         <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600">
-                                {u.username.substring(0,2).toUpperCase()}
+                            <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 uppercase">
+                                {u.username.substring(0,2)}
                             </div>
-                            <div>
-                                <h4 className="font-bold">{u.displayName}</h4>
+                            <div className="overflow-hidden">
+                                <h4 className="font-bold text-slate-800 truncate">{u.displayName}</h4>
                                 <p className="text-xs text-slate-500">@{u.username}</p>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-1 mb-2">
                             {u.roles?.map(r => (
-                                <span key={r} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-bold uppercase">{r.replace('_', ' ')}</span>
+                                <span key={r} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-bold uppercase tracking-wider">{r.replace('_', ' ')}</span>
                             ))}
                         </div>
-                        <div className="text-xs text-slate-400">{u.email}</div>
+                        <div className="text-[10px] text-slate-400 truncate font-mono">{u.email}</div>
                     </div>
                 ))}
             </div>
 
             {isFormOpen && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl w-full max-w-lg p-6">
-                        <h3 className="text-lg font-bold mb-4">Create System User</h3>
+                    <div className="bg-white rounded-2xl w-full max-w-lg p-8 shadow-2xl animate-in zoom-in-95 duration-200">
+                        <h3 className="text-xl font-bold mb-6 text-slate-800">New System Account</h3>
                         <div className="space-y-4">
-                            <input className="w-full border p-2 rounded" placeholder="Username" value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
-                            <input className="w-full border p-2 rounded" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
-                            <input className="w-full border p-2 rounded" placeholder="Display Name" value={form.displayName} onChange={e => setForm({...form, displayName: e.target.value})} />
-                            <input className="w-full border p-2 rounded" placeholder="Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Username *</label>
+                                    <input className={`w-full border p-3 rounded-lg outline-none transition-all ${errors.username ? 'border-red-500 bg-red-50' : 'border-slate-200 focus:border-blue-500'}`} placeholder="Login ID" value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Password *</label>
+                                    <input className={`w-full border p-3 rounded-lg outline-none transition-all ${errors.password ? 'border-red-500 bg-red-50' : 'border-slate-200 focus:border-blue-500'}`} type="password" placeholder="Min 3 chars" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Display Name *</label>
+                                <input className={`w-full border p-3 rounded-lg outline-none transition-all ${errors.displayName ? 'border-red-500 bg-red-50' : 'border-slate-200 focus:border-blue-500'}`} placeholder="Full Name" value={form.displayName} onChange={e => setForm({...form, displayName: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Email Address *</label>
+                                <input className={`w-full border p-3 rounded-lg outline-none transition-all ${errors.email ? 'border-red-500 bg-red-50' : 'border-slate-200 focus:border-blue-500'}`} placeholder="name@knitworks.com" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+                            </div>
                             
                             <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Assign Roles (Multi-select)</label>
-                                <div className="grid grid-cols-2 gap-2">
+                                <label className={`block text-[10px] font-bold uppercase mb-2 ${errors.roles ? 'text-red-500' : 'text-slate-400'}`}>System Permissions (Select At Least One) *</label>
+                                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
                                     {Object.values(UserRole).map(role => (
-                                        <label key={role} className="flex items-center gap-2 text-sm p-2 border rounded cursor-pointer hover:bg-slate-50">
-                                            <input type="checkbox" checked={form.roles?.includes(role)} onChange={() => toggleRole(role)} />
+                                        <label key={role} className={`flex items-center gap-2 text-xs p-2 border rounded-lg cursor-pointer transition-all ${form.roles?.includes(role) ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-200'}`}>
+                                            <input type="checkbox" className="hidden" checked={form.roles?.includes(role)} onChange={() => toggleRole(role)} />
+                                            <div className={`w-3 h-3 rounded-sm border flex items-center justify-center ${form.roles?.includes(role) ? 'bg-blue-600 border-blue-600' : 'border-slate-300'}`}>
+                                                {form.roles?.includes(role) && <Check size={10} className="text-white"/>}
+                                            </div>
                                             {role.replace('_', ' ')}
                                         </label>
                                     ))}
                                 </div>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-2 mt-6">
-                            <button onClick={() => setIsFormOpen(false)} className="px-4 py-2 border rounded text-slate-600 font-bold">Cancel</button>
-                            <button onClick={handleSubmit} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">Create User</button>
+                        <div className="flex justify-end gap-2 mt-8">
+                            <button onClick={() => setIsFormOpen(false)} className="px-6 py-3 border border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-50">Cancel</button>
+                            <button onClick={handleSubmit} className="px-10 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">Create Account</button>
                         </div>
                     </div>
                 </div>

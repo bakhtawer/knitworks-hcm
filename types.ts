@@ -53,6 +53,11 @@ export enum ShiftType {
   NIGHT = '11:00 PM - 07:00 AM (C)'
 }
 
+export enum EmploymentStatus {
+  PROBATION = 'Probation',
+  PERMANENT = 'Permanent'
+}
+
 export enum LetterType {
   APPOINTMENT = 'Appointment Letter',
   CONFIRMATION = 'Confirmation Letter',
@@ -92,7 +97,7 @@ export interface Position {
   level?: ManagementLevel;
   targetDailyOutput?: number;
   overtimeRate: number;
-  customAllowances?: { name: string; amount: number }[]; // Dynamic allowances
+  customAllowances?: { name: string; amount: number; taxPercentage?: number }[]; // Dynamic allowances
 }
 
 export interface EmployeeDocument {
@@ -124,6 +129,7 @@ export interface Employee {
   department: Department;
   shift: ShiftType;
   isActive: boolean;
+  employmentStatus: EmploymentStatus;
   salaryType?: 'Monthly' | 'Hourly';
   
   // Financial
@@ -149,13 +155,22 @@ export interface Employee {
   providentFund: number; // %
   mobileAllowance: number;
   foodAllowance: number;
+  customAllowances?: { name: string; amount: number; taxPercentage?: number }[];
+}
+
+export enum AttendanceStatus {
+  PRESENT = 'Present',
+  ABSENT = 'Absent',
+  LATE = 'Late',
+  LEAVE = 'Leave',
+  HALFDAY = 'HalfDay'
 }
 
 export interface AttendanceRecord {
   id: string;
   employeeId: string;
   date: string;
-  status: 'Present' | 'Absent' | 'Late' | 'Leave' | 'HalfDay';
+  status: AttendanceStatus;
   checkIn?: string; // HH:mm
   checkOut?: string; // HH:mm
   hoursWorked: number;
@@ -255,4 +270,18 @@ export interface Visitor {
   checkOutTime?: string;
   date: string;
   badgeNumber: string;
+}
+
+export interface SystemSettings {
+  id: string;
+  allowedLates: number;
+  lateDeductionDays: number;
+  attendanceBonus: number;
+  foodAllowanceLabor: number;
+  loanLimitPercent: number;
+  overtimeRate: number;
+  halfDayDeduction: number;
+  taxSlab1: number;
+  taxRate1: number;
+  updatedAt: string;
 }
