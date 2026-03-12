@@ -470,7 +470,7 @@ async function startServer() {
         });
         app.use(vite.middlewares);
 
-        app.get('*', async (req, res, next) => {
+        app.use(async (req, res, next) => {
             if (req.url.startsWith('/api')) return next();
             
             try {
@@ -486,7 +486,7 @@ async function startServer() {
         });
     } else {
         app.use(express.static('dist'));
-        app.get('*', (req, res) => {
+        app.use((req, res) => {
             res.sendFile('dist/index.html', { root: '.' });
         });
     }
